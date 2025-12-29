@@ -1,0 +1,775 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: #1a1a2e;
+    color: #eee;
+    overflow: hidden;
+    touch-action: none;
+}
+
+#app {
+    width: 100vw;
+    height: 100vh;
+    position: relative;
+}
+
+.screen {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+}
+
+.screen.active {
+    display: flex;
+}
+
+.screen.overlay {
+    background: rgba(0, 0, 0, 0.85);
+    z-index: 1000;
+}
+
+.screen-content {
+    text-align: center;
+    padding: 40px;
+    background: rgba(22, 33, 62, 0.9);
+    border-radius: 20px;
+    border: 2px solid #0f3460;
+    max-width: 90%;
+    max-height: 90%;
+    overflow-y: auto;
+}
+
+.game-title {
+    font-size: 4em;
+    margin-bottom: 50px;
+    color: #e94560;
+    text-shadow: 0 0 20px rgba(233, 69, 96, 0.5);
+    letter-spacing: 4px;
+}
+
+.menu-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    align-items: center;
+}
+
+.menu-btn {
+    padding: 15px 60px;
+    font-size: 1.3em;
+    font-weight: bold;
+    color: #fff;
+    background: linear-gradient(135deg, #e94560 0%, #c72c48 100%);
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.3s;
+    box-shadow: 0 5px 15px rgba(233, 69, 96, 0.4);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    min-width: 250px;
+}
+
+.menu-btn:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 20px rgba(233, 69, 96, 0.6);
+}
+
+.menu-btn:active {
+    transform: translateY(-1px);
+}
+
+.menu-btn.secondary {
+    background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
+    box-shadow: 0 5px 15px rgba(15, 52, 96, 0.4);
+}
+
+.menu-btn.secondary:hover {
+    box-shadow: 0 8px 20px rgba(15, 52, 96, 0.6);
+}
+
+.setup-section {
+    margin: 30px 0;
+}
+
+.setup-section h3 {
+    color: #e94560;
+    margin-bottom: 20px;
+    font-size: 1.5em;
+}
+
+.hero-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    margin: 20px 0;
+}
+
+.hero-card {
+    background: rgba(15, 52, 96, 0.5);
+    border: 2px solid #0f3460;
+    border-radius: 10px;
+    padding: 20px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.hero-card:hover {
+    transform: scale(1.05);
+    border-color: #e94560;
+    box-shadow: 0 0 20px rgba(233, 69, 96, 0.5);
+}
+
+.hero-card.selected {
+    border-color: #4ecca3;
+    background: rgba(78, 204, 163, 0.2);
+    box-shadow: 0 0 20px rgba(78, 204, 163, 0.5);
+}
+
+.hero-card.disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.hero-portrait {
+    width: 80px;
+    height: 80px;
+    background: #0f3460;
+    border-radius: 50%;
+    margin: 0 auto 15px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2em;
+    font-weight: bold;
+}
+
+.hero-name {
+    font-size: 1.2em;
+    font-weight: bold;
+    margin-bottom: 5px;
+    color: #4ecca3;
+}
+
+.hero-role {
+    color: #aaa;
+    font-size: 0.9em;
+    margin-bottom: 10px;
+}
+
+.hero-abilities {
+    font-size: 0.85em;
+    color: #ccc;
+    line-height: 1.6;
+}
+
+.summoner-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 15px;
+    margin: 20px 0;
+}
+
+.summoner-card {
+    background: rgba(15, 52, 96, 0.5);
+    border: 2px solid #0f3460;
+    border-radius: 10px;
+    padding: 15px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.summoner-card:hover {
+    border-color: #e94560;
+    transform: scale(1.05);
+}
+
+.summoner-card.selected {
+    border-color: #4ecca3;
+    background: rgba(78, 204, 163, 0.2);
+}
+
+.summoner-icon {
+    width: 60px;
+    height: 60px;
+    background: #0f3460;
+    border-radius: 50%;
+    margin: 0 auto 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: 1.5em;
+}
+
+.summoner-name {
+    font-weight: bold;
+    margin-bottom: 5px;
+    color: #4ecca3;
+}
+
+.summoner-desc {
+    font-size: 0.85em;
+    color: #ccc;
+}
+
+.difficulty-controls {
+    margin: 20px 0;
+}
+
+.difficulty-row {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin: 15px 0;
+    justify-content: center;
+}
+
+.difficulty-row label {
+    min-width: 100px;
+    text-align: right;
+}
+
+.difficulty-row input[type="range"] {
+    width: 200px;
+}
+
+.difficulty-row span {
+    min-width: 80px;
+    color: #4ecca3;
+    font-weight: bold;
+}
+
+.settings-section {
+    margin: 30px 0;
+    text-align: left;
+}
+
+.settings-section h3 {
+    color: #e94560;
+    margin-bottom: 15px;
+}
+
+.setting-row {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin: 15px 0;
+}
+
+.setting-row label {
+    min-width: 200px;
+}
+
+.setting-row input[type="range"] {
+    flex: 1;
+    max-width: 200px;
+}
+
+.setting-row span {
+    min-width: 60px;
+    color: #4ecca3;
+}
+
+.settings-buttons {
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+    margin-top: 30px;
+}
+
+#gameScreen.active {
+    display: block;
+}
+
+#gameCanvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+    background: #0a0a0a;
+}
+
+#gameHUD {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+#gameHUD > * {
+    pointer-events: auto;
+}
+
+#topHUD {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    padding: 15px;
+    gap: 20px;
+}
+
+#minimapContainer {
+    width: 200px;
+    height: 200px;
+    background: rgba(0, 0, 0, 0.7);
+    border: 2px solid #0f3460;
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+#minimap {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+#gameTimer {
+    flex: 1;
+    text-align: center;
+    font-size: 1.8em;
+    font-weight: bold;
+    color: #4ecca3;
+    text-shadow: 0 0 10px rgba(78, 204, 163, 0.5);
+    padding: 10px;
+    background: rgba(0, 0, 0, 0.5);
+    border-radius: 10px;
+    max-width: 150px;
+}
+
+#teamStatus {
+    display: flex;
+    gap: 20px;
+}
+
+.team-panel {
+    background: rgba(0, 0, 0, 0.7);
+    border: 2px solid #0f3460;
+    border-radius: 10px;
+    padding: 10px;
+    min-width: 200px;
+}
+
+#allyTeam {
+    border-color: #4ecca3;
+}
+
+#enemyTeam {
+    border-color: #e94560;
+}
+
+.team-member {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 5px 0;
+    padding: 5px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 5px;
+}
+
+.member-icon {
+    width: 30px;
+    height: 30px;
+    background: #0f3460;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8em;
+    font-weight: bold;
+}
+
+.member-info {
+    flex: 1;
+    font-size: 0.85em;
+}
+
+.member-name {
+    font-weight: bold;
+}
+
+.member-hp-bar {
+    height: 4px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 2px;
+    margin-top: 3px;
+    overflow: hidden;
+}
+
+.member-hp-fill {
+    height: 100%;
+    background: #4ecca3;
+    transition: width 0.3s;
+}
+
+#bottomHUD {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    padding: 15px;
+    gap: 20px;
+    align-items: flex-end;
+}
+
+#playerStats {
+    background: rgba(0, 0, 0, 0.8);
+    border: 2px solid #0f3460;
+    border-radius: 10px;
+    padding: 15px;
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    min-width: 400px;
+}
+
+#heroIcon {
+    width: 60px;
+    height: 60px;
+    background: #0f3460;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5em;
+    font-weight: bold;
+    border: 2px solid #4ecca3;
+}
+
+#heroInfo {
+    flex: 1;
+}
+
+#heroName {
+    font-weight: bold;
+    font-size: 1.1em;
+    color: #4ecca3;
+}
+
+#heroLevel {
+    font-size: 0.9em;
+    color: #aaa;
+}
+
+.progress-bar {
+    height: 8px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    margin-top: 5px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: #4ecca3;
+    transition: width 0.3s;
+}
+
+#resourceBars {
+    flex: 1;
+}
+
+.resource-bar {
+    height: 25px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 5px;
+    margin: 5px 0;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.resource-fill {
+    height: 100%;
+    transition: width 0.3s;
+}
+
+.resource-bar.hp .resource-fill {
+    background: linear-gradient(90deg, #e94560 0%, #ff6b81 100%);
+}
+
+.resource-bar.mana .resource-fill {
+    background: linear-gradient(90deg, #4ecca3 0%, #6effc5 100%);
+}
+
+.resource-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 0.85em;
+    font-weight: bold;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+    pointer-events: none;
+}
+
+#playerMeta {
+    font-size: 0.9em;
+}
+
+#goldCounter {
+    color: #ffd700;
+    font-weight: bold;
+    margin-bottom: 5px;
+}
+
+#kdaCounter {
+    color: #aaa;
+}
+
+#abilityBar {
+    display: flex;
+    gap: 10px;
+    background: rgba(0, 0, 0, 0.8);
+    border: 2px solid #0f3460;
+    border-radius: 10px;
+    padding: 15px;
+}
+
+.ability-slot {
+    width: 60px;
+    height: 60px;
+    background: rgba(15, 52, 96, 0.5);
+    border: 2px solid #0f3460;
+    border-radius: 10px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ability-slot.ready {
+    border-color: #4ecca3;
+    box-shadow: 0 0 10px rgba(78, 204, 163, 0.5);
+}
+
+.ability-slot.on-cooldown {
+    opacity: 0.5;
+}
+
+.ability-icon {
+    font-size: 1.5em;
+    font-weight: bold;
+    color: #fff;
+}
+
+.ability-cooldown {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: 1.2em;
+    border-radius: 8px;
+}
+
+.ability-key {
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    font-size: 0.7em;
+    background: rgba(0, 0, 0, 0.8);
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+
+#pauseButton {
+    background: rgba(0, 0, 0, 0.8);
+    border: 2px solid #0f3460;
+    border-radius: 10px;
+    padding: 15px 20px;
+    font-size: 1.5em;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+#pauseButton:hover {
+    border-color: #e94560;
+    background: rgba(233, 69, 96, 0.2);
+}
+
+.stats-window {
+    max-width: 600px;
+    max-height: 80vh;
+}
+
+.close-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: #e94560;
+    border: none;
+    color: #fff;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    font-size: 1.5em;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.close-btn:hover {
+    background: #ff6b81;
+    transform: scale(1.1);
+}
+
+#statsContent {
+    text-align: left;
+    margin-top: 20px;
+}
+
+.stat-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px;
+    margin: 5px 0;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 5px;
+}
+
+.stat-label {
+    color: #aaa;
+}
+
+.stat-value {
+    color: #4ecca3;
+    font-weight: bold;
+}
+
+#gameResult {
+    font-size: 3em;
+    margin-bottom: 30px;
+}
+
+#gameResult.victory {
+    color: #4ecca3;
+    text-shadow: 0 0 20px rgba(78, 204, 163, 0.8);
+}
+
+#gameResult.defeat {
+    color: #e94560;
+    text-shadow: 0 0 20px rgba(233, 69, 96, 0.8);
+}
+
+#matchStats {
+    margin: 30px 0;
+}
+
+#statsTable {
+    background: rgba(0, 0, 0, 0.5);
+    border-radius: 10px;
+    padding: 20px;
+    margin: 20px 0;
+}
+
+.stats-table-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1fr;
+    gap: 10px;
+    padding: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.stats-table-row:first-child {
+    font-weight: bold;
+    color: #4ecca3;
+}
+
+.stats-table-row.ally {
+    background: rgba(78, 204, 163, 0.1);
+}
+
+.stats-table-row.enemy {
+    background: rgba(233, 69, 96, 0.1);
+}
+
+#matchInfo {
+    display: flex;
+    justify-content: space-around;
+    margin: 20px 0;
+    font-size: 1.1em;
+}
+
+@media (max-width: 768px) {
+    .game-title {
+        font-size: 2.5em;
+    }
+
+    #topHUD {
+        flex-wrap: wrap;
+    }
+
+    #minimapContainer {
+        width: 150px;
+        height: 150px;
+    }
+
+    #teamStatus {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    #bottomHUD {
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+
+    #playerStats {
+        min-width: unset;
+        width: 100%;
+    }
+
+    .stats-table-row {
+        grid-template-columns: 1fr 1fr 1fr;
+        font-size: 0.85em;
+    }
+}
+
+@media (max-width: 480px) {
+    .screen-content {
+        padding: 20px;
+    }
+
+    .menu-btn {
+        padding: 12px 30px;
+        font-size: 1em;
+        min-width: 200px;
+    }
+
+    .hero-grid {
+        grid-template-columns: 1fr;
+    }
+
+    #abilityBar {
+        gap: 5px;
+        padding: 10px;
+    }
+
+    .ability-slot {
+        width: 50px;
+        height: 50px;
+    }
+}
