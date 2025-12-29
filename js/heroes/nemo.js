@@ -1,4 +1,4 @@
-export const Nemo = {
+const Nemo = {
     id: 'nemo',
     name: 'Nemo',
     role: 'Support',

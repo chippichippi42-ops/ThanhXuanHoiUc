@@ -1,4 +1,4 @@
-export const Balametany = {
+const Balametany = {
     id: 'balametany',
     name: 'Balametany',
     role: 'Assassin',

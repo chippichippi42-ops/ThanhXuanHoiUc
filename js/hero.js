@@ -921,5 +921,4 @@ class Hero extends Entity {
     }
 }
 
-export { Hero };
-export { Hero as default };
+window.Hero = Hero;

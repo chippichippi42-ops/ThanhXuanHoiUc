@@ -1,4 +1,4 @@
-export const VanHeo = {
+const VanHeo = {
     id: 'vanheo',
     name: 'Vanheo',
     role: 'Archer',

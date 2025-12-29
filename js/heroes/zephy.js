@@ -1,4 +1,4 @@
-export const Zephy = {
+const Zephy = {
     id: 'zephy',
     name: 'Zephy',
     role: 'Fighter',
