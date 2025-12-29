@@ -149,32 +149,44 @@ class ScreenManager {
         }
     }
 
+    getSkillByKey(heroData, key) {
+        if (!heroData.skills || !Array.isArray(heroData.skills)) return { name: 'N/A' };
+        return heroData.skills.find(s => s.key === key) || { name: 'N/A' };
+    }
+
     populateHeroSelection() {
         const heroSelection = document.getElementById('heroSelection');
         if (!heroSelection) return;
+
+        const allHeroes = (typeof HEROES !== 'undefined' && HEROES) ? HEROES : {};
         
         heroSelection.innerHTML = '';
         
-        for (const heroData of Object.values(HERO_DATA)) {
+        for (const heroData of Object.values(allHeroes)) {
             const card = document.createElement('div');
             card.className = 'hero-card';
             card.dataset.heroId = heroData.id;
             
             const portrait = document.createElement('div');
             portrait.className = 'hero-portrait';
-            portrait.textContent = heroData.emoji;
+            portrait.textContent = heroData.emoji || '❓';
             
             const name = document.createElement('div');
             name.className = 'hero-name';
-            name.textContent = heroData.name;
+            name.textContent = heroData.name || 'Unknown';
             
             const role = document.createElement('div');
             role.className = 'hero-role';
-            role.textContent = heroData.role;
+            role.textContent = heroData.role || 'Unknown';
+            
+            const qSkill = this.getSkillByKey(heroData, 'q');
+            const eSkill = this.getSkillByKey(heroData, 'e');
+            const rSkill = this.getSkillByKey(heroData, 'r');
+            const tSkill = this.getSkillByKey(heroData, 't');
             
             const abilities = document.createElement('div');
             abilities.className = 'hero-abilities';
-            abilities.textContent = `Q: ${heroData.abilities.q.name}\nW: ${heroData.abilities.w.name}\nE: ${heroData.abilities.e.name}\nR: ${heroData.abilities.r.name}`;
+            abilities.textContent = `Q: ${qSkill.name}\nE: ${eSkill.name}\nR: ${rSkill.name}\nT: ${tSkill.name}`;
             
             card.appendChild(portrait);
             card.appendChild(name);

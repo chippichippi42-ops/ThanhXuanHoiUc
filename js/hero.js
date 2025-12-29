@@ -17,26 +17,27 @@ const DEFAULT_HERO_BASE_STATS = {
 };
 
 class Hero extends Entity {
-    constructor(x, y, team, heroData, isPlayer = false) {
+    constructor(x, y, team, heroId, isPlayer = false) {
         super(x, y, team);
 
-        const fallbackHeroData = (typeof HERO_DATA !== 'undefined' && HERO_DATA)
-            ? HERO_DATA[Object.keys(HERO_DATA)[0]]
-            : null;
+        const allHeroes = (typeof HEROES !== 'undefined' && HEROES) ? HEROES : {};
+        const heroData = allHeroes[heroId] || allHeroes.vanheo || null;
 
-        this.heroData = heroData || fallbackHeroData || {
+        this.heroData = heroData || {
             id: 'unknown',
             name: 'Unknown',
             role: 'Unknown',
             emoji: '❓',
             baseStats: { ...DEFAULT_HERO_BASE_STATS },
             growthStats: {},
-            abilities: {}
+            normalAttack: { damage: 55, range: 150, speed: 0.7, effects: [] },
+            skills: []
         };
 
         this.heroId = this.heroData.id || 'unknown';
         this.name = this.heroData.name || 'Unknown';
         this.role = this.heroData.role || 'Unknown';
+        this.emoji = this.heroData.emoji || '❓';
         this.isPlayer = isPlayer;
         this.isAI = !isPlayer;
 
@@ -52,14 +53,17 @@ class Hero extends Entity {
             : {};
 
         this.stats = { ...DEFAULT_HERO_BASE_STATS, ...baseStats };
+        this.baseStats = { ...this.stats };
+        this.growthStats = this.heroData.growthStats || {};
+
         this.maxHp = this.stats.hp || DEFAULT_HERO_BASE_STATS.hp;
         this.hp = this.maxHp;
         this.maxMana = this.stats.mana || 0;
         this.mana = this.maxMana;
         this.size = 25;
 
-        this.abilities = this.createAbilities();
-        this.summonerSpell = null;
+        this.normalAttack = this.heroData.normalAttack || { damage: 55, range: 150, speed: 0.7, effects: [] };
+        this.skills = this.createSkills();
 
         const attackSpeed = Math.max(0.1, this.stats.attackSpeed || DEFAULT_HERO_BASE_STATS.attackSpeed);
         this.attackCooldown = 1000 / attackSpeed;
@@ -81,33 +85,48 @@ class Hero extends Entity {
             strategy: 'FARM_SAFE',
             lastDecisionTime: 0
         };
+
+        this.skillCastCallback = null;
+        this.setSkillCastCallback();
     }
 
-    createAbilities() {
-        const abilities = {};
+    setSkillCastCallback() {
+        const heroId = this.heroId;
+        const callbacks = {
+            vanheo: (ability, targetX, targetY, gameState) => this.vanheoSkills(ability, targetX, targetY, gameState),
+            zephy: (ability, targetX, targetY, gameState) => this.zephySkills(ability, targetX, targetY, gameState),
+            lalo: (ability, targetX, targetY, gameState) => this.laloSkills(ability, targetX, targetY, gameState),
+            nemo: (ability, targetX, targetY, gameState) => this.nemoSkills(ability, targetX, targetY, gameState),
+            balametany: (ability, targetX, targetY, gameState) => this.balametanySkills(ability, targetX, targetY, gameState)
+        };
+        this.skillCastCallback = callbacks[heroId] || ((ability, targetX, targetY, gameState) => {});
+    }
 
-        const heroAbilities = this.heroData?.abilities && typeof this.heroData.abilities === 'object'
-            ? this.heroData.abilities
-            : {};
+    createSkills() {
+        const skills = {};
 
-        for (const [key, abilityData] of Object.entries(heroAbilities)) {
-            if (!abilityData || typeof abilityData !== 'object') continue;
+        const heroSkills = this.heroData.skills && Array.isArray(this.heroData.skills)
+            ? this.heroData.skills
+            : [];
 
-            abilities[key] = {
-                ...abilityData,
+        for (const skillData of heroSkills) {
+            if (!skillData || typeof skillData !== 'object') continue;
+
+            skills[skillData.key] = {
+                ...skillData,
                 currentCooldown: 0,
                 isReady: true,
-                level: key === 'r' ? 0 : 1
+                level: skillData.key === 'r' ? 0 : 1
             };
         }
 
-        return abilities;
+        return skills;
     }
 
     setSummonerSpell(spellId) {
         const spellData = SUMMONER_SPELLS[spellId];
         if (!spellData) return;
-        
+
         this.summonerSpell = {
             ...spellData,
             currentCooldown: 0,
@@ -120,38 +139,50 @@ class Hero extends Entity {
             this.updateRespawn(gameState);
             return;
         }
-        
+
+        this.updateFacingDirection(gameState);
         this.updateCooldowns(deltaTime);
         this.updateBuffs(deltaTime);
         this.updateRegen(deltaTime);
-        
+
         if (this.isStunned) {
             this.vx = 0;
             this.vy = 0;
             return;
         }
-        
+
         if (this.vx !== 0 || this.vy !== 0) {
             const speed = Math.min(this.stats.movementSpeed, CONFIG.MAX_MOVEMENT_SPEED);
             const newX = this.x + this.vx * deltaTime;
             const newY = this.y + this.vy * deltaTime;
-            
+
             if (!gameState.map.isCollidingWithWall(newX, newY, this.size)) {
                 this.x = newX;
                 this.y = newY;
-                this.rotation = Math.atan2(this.vy, this.vx);
             }
         }
     }
 
+    updateFacingDirection(gameState) {
+        if (!gameState || !gameState.playerHero) return;
+
+        if (this === gameState.playerHero && gameState.inputManager) {
+            const mouseX = gameState.inputManager.mouseWorldX || 0;
+            const mouseY = gameState.inputManager.mouseWorldY || 0;
+            this.facingDirection = Math.atan2(mouseY - this.y, mouseX - this.x);
+        } else if (this.vx !== 0 || this.vy !== 0) {
+            this.facingDirection = Math.atan2(this.vy, this.vx);
+        }
+    }
+
     updateCooldowns(deltaTime) {
-        for (const ability of Object.values(this.abilities)) {
-            if (ability.currentCooldown > 0) {
-                ability.currentCooldown -= deltaTime * 1000;
-                ability.isReady = ability.currentCooldown <= 0;
+        for (const skill of Object.values(this.skills)) {
+            if (skill.currentCooldown > 0) {
+                skill.currentCooldown -= deltaTime * 1000;
+                skill.isReady = skill.currentCooldown <= 0;
             }
         }
-        
+
         if (this.summonerSpell && this.summonerSpell.currentCooldown > 0) {
             this.summonerSpell.currentCooldown -= deltaTime * 1000;
             this.summonerSpell.isReady = this.summonerSpell.currentCooldown <= 0;
@@ -163,17 +194,17 @@ class Hero extends Entity {
             buff.duration -= deltaTime * 1000;
             return buff.duration > 0;
         });
-        
+
         this.debuffs = this.debuffs.filter(debuff => {
             debuff.duration -= deltaTime * 1000;
-            
+
             if (debuff.type === 'stun' && debuff.duration <= 0) {
                 this.isStunned = false;
             }
-            
+
             return debuff.duration > 0;
         });
-        
+
         this.damageReduction = 0;
         for (const buff of this.buffs) {
             if (buff.type === 'damageReduction') {
@@ -186,7 +217,7 @@ class Hero extends Entity {
         if (this.hp < this.maxHp) {
             this.hp = Math.min(this.maxHp, this.hp + this.maxHp * this.stats.hpRegen * deltaTime);
         }
-        
+
         if (this.mana < this.maxMana) {
             this.mana = Math.min(this.maxMana, this.mana + this.maxMana * this.stats.manaRegen * deltaTime);
         }
@@ -195,205 +226,196 @@ class Hero extends Entity {
     updateRespawn(gameState) {
         if (this.respawnTime > 0) {
             const elapsed = Date.now() - this.deathTime;
-            
+
             if (elapsed >= this.respawnTime) {
                 this.respawn(gameState);
             }
         }
     }
 
-    castAbility(abilityKey, targetX, targetY, gameState) {
-        const ability = this.abilities[abilityKey];
-        
-        if (!ability) return false;
-        if (!ability.isReady) return false;
-        if (ability.level === 0) return false;
-        if (this.mana < ability.manaCost) return false;
+    getSkillDirection(targetX, targetY, directionDependent) {
+        if (directionDependent && this.facingDirection !== undefined) {
+            return this.facingDirection;
+        }
+        return Math.atan2(targetY - this.y, targetX - this.x);
+    }
+
+    castAbility(skillKey, targetX, targetY, gameState) {
+        const skill = this.skills[skillKey];
+
+        if (!skill) return false;
+        if (!skill.isReady) return false;
+        if (skill.level === 0) return false;
+        if (this.mana < skill.manaCost) return false;
         if (this.isStunned) return false;
-        
-        this.mana -= ability.manaCost;
-        
+
+        this.mana -= skill.manaCost;
+
         const cdr = Math.min(CONFIG.MAX_CDR, 0);
-        ability.currentCooldown = ability.cooldown * 1000 * (1 - cdr);
-        ability.isReady = false;
-        
-        this[`ability_${abilityKey}`](targetX, targetY, gameState);
-        
+        skill.currentCooldown = skill.cooldown * 1000 * (1 - cdr);
+        skill.isReady = false;
+
+        this.skillCastCallback(skill, targetX, targetY, gameState);
+
         return true;
     }
 
-    ability_q(targetX, targetY, gameState) {
-        const ability = this.abilities.q;
-        
-        switch (this.heroId) {
-            case 'vanheo':
-                this.vanheoMultiShot(targetX, targetY, gameState);
+    vanheoSkills(skill, targetX, targetY, gameState) {
+        const direction = this.getSkillDirection(targetX, targetY, skill.directionDependent);
+
+        switch (skill.key) {
+            case 'q':
+                this.vanheoMultiShot(skill, direction, gameState);
                 break;
-            case 'zephy':
-                this.zephyDash(targetX, targetY, gameState);
+            case 'e':
+                this.vanheoSwiftStep(skill, gameState);
                 break;
-            case 'lalo':
-                this.laloFireball(targetX, targetY, gameState);
+            case 'r':
+                this.vanheoPiercingArrow(skill, direction, gameState);
                 break;
-            case 'nemo':
-                this.nemoHeal(targetX, targetY, gameState);
-                break;
-            case 'balametany':
-                this.balametanyShadowDash(targetX, targetY, gameState);
+            case 't':
+                this.vanheoRainOfArrows(skill, targetX, targetY, gameState);
                 break;
         }
     }
 
-    ability_e(targetX, targetY, gameState) {
-        switch (this.heroId) {
-            case 'vanheo':
-                this.vanheoSwiftStep(gameState);
+    zephySkills(skill, targetX, targetY, gameState) {
+        const direction = this.getSkillDirection(targetX, targetY, skill.directionDependent);
+
+        switch (skill.key) {
+            case 'q':
+                this.zephyDash(skill, direction, gameState);
                 break;
-            case 'zephy':
-                this.zephyIronWall(gameState);
+            case 'e':
+                this.zephyIronWall(skill, gameState);
                 break;
-            case 'lalo':
-                this.laloFrostNova(targetX, targetY, gameState);
+            case 'r':
+                this.zephyGroundSlam(skill, gameState);
                 break;
-            case 'nemo':
-                this.nemoShield(targetX, targetY, gameState);
-                break;
-            case 'balametany':
-                this.balametanyStealth(gameState);
+            case 't':
+                this.zephyEarthquake(skill, targetX, targetY, gameState);
                 break;
         }
     }
 
-    ability_r(targetX, targetY, gameState) {
-        switch (this.heroId) {
-            case 'vanheo':
-                this.vanheoPiercingArrow(targetX, targetY, gameState);
+    laloSkills(skill, targetX, targetY, gameState) {
+        const direction = this.getSkillDirection(targetX, targetY, skill.directionDependent);
+
+        switch (skill.key) {
+            case 'q':
+                this.laloFireball(skill, direction, gameState);
                 break;
-            case 'zephy':
-                this.zephyGroundSlam(gameState);
+            case 'e':
+                this.laloFrostNova(skill, targetX, targetY, gameState);
                 break;
-            case 'lalo':
-                this.laloLightning(targetX, targetY, gameState);
+            case 'r':
+                this.laloLightning(skill, targetX, targetY, gameState);
                 break;
-            case 'nemo':
-                this.nemoInspire(targetX, targetY, gameState);
-                break;
-            case 'balametany':
-                this.balametanyExecute(targetX, targetY, gameState);
+            case 't':
+                this.laloMeteorStorm(skill, targetX, targetY, gameState);
                 break;
         }
     }
 
-    ability_t(targetX, targetY, gameState) {
-        switch (this.heroId) {
-            case 'vanheo':
-                this.vanheoRainOfArrows(targetX, targetY, gameState);
+    nemoSkills(skill, targetX, targetY, gameState) {
+        switch (skill.key) {
+            case 'q':
+                this.nemoHeal(skill, targetX, targetY, gameState);
                 break;
-            case 'zephy':
-                this.zephyEarthquake(targetX, targetY, gameState);
+            case 'e':
+                this.nemoShield(skill, targetX, targetY, gameState);
                 break;
-            case 'lalo':
-                this.laloMeteorStorm(targetX, targetY, gameState);
+            case 'r':
+                this.nemoInspire(skill, targetX, targetY, gameState);
                 break;
-            case 'nemo':
-                this.nemoDivineIntervention(gameState);
-                break;
-            case 'balametany':
-                this.balametanyDeathMark(targetX, targetY, gameState);
+            case 't':
+                this.nemoDivineIntervention(skill, gameState);
                 break;
         }
     }
 
-    autoAttack(targetX, targetY, gameState) {
-        if (this.canAttack()) {
-            const targets = [...gameState.minions, ...gameState.heroes]
-                .filter(e => e.team !== this.team && !e.isDead);
-            
-            let closestTarget = null;
-            let closestDist = this.stats.attackRange;
-            
-            for (const target of targets) {
-                const dist = this.distanceTo(target);
-                if (dist < closestDist) {
-                    closestTarget = target;
-                    closestDist = dist;
-                }
-            }
-            
-            if (closestTarget) {
-                this.performAttack(closestTarget, gameState);
-            }
+    balametanySkills(skill, targetX, targetY, gameState) {
+        const direction = this.getSkillDirection(targetX, targetY, skill.directionDependent);
+
+        switch (skill.key) {
+            case 'q':
+                this.balametanyShadowDash(skill, direction, gameState);
+                break;
+            case 'e':
+                this.balametanyStealth(skill, gameState);
+                break;
+            case 'r':
+                this.balametanyExecute(skill, targetX, targetY, gameState);
+                break;
+            case 't':
+                this.balametanyDeathMark(skill, direction, gameState);
+                break;
         }
     }
 
-    vanheMultiShot(targetX, targetY, gameState) {
-        const ability = this.abilities.q;
-        const angle = Math.atan2(targetY - this.y, targetX - this.x);
-        const spread = Math.PI / 6;
-        
-        for (let i = 0; i < ability.shots; i++) {
-            const shotAngle = angle + (i - 1) * spread / 2;
-            const tx = this.x + Math.cos(shotAngle) * ability.range;
-            const ty = this.y + Math.sin(shotAngle) * ability.range;
-            
+    vanheoMultiShot(skill, direction, gameState) {
+        const spread = skill.spreadAngle || Math.PI / 6;
+        const shots = skill.shots || 3;
+
+        for (let i = 0; i < shots; i++) {
+            const shotAngle = direction + (i - Math.floor(shots / 2)) * spread / 2;
+            const tx = this.x + Math.cos(shotAngle) * skill.range;
+            const ty = this.y + Math.sin(shotAngle) * skill.range;
+
             gameState.projectiles.push(
-                new Projectile(this.x, this.y, tx, ty, ability.damage, 800, this, {
+                new Projectile(this.x, this.y, tx, ty, skill.damage, 800, this, {
                     color: '#f39c12'
                 })
             );
         }
-        
+
         gameState.effects.push(new AbilityEffect(this.x, this.y, 100, '#f39c12'));
     }
 
-    vanheoSwiftStep(gameState) {
-        const ability = this.abilities.e;
-        
+    vanheoSwiftStep(skill, gameState) {
         this.buffs.push({
             type: 'movementSpeed',
-            value: ability.speedBoost,
-            duration: ability.duration * 1000
+            value: skill.speedBoost,
+            duration: skill.duration * 1000
         });
-        
+
         const originalSpeed = this.stats.movementSpeed;
-        this.stats.movementSpeed *= ability.speedBoost;
-        
+        this.stats.movementSpeed *= skill.speedBoost;
+
         setTimeout(() => {
             this.stats.movementSpeed = originalSpeed;
-        }, ability.duration * 1000);
-        
+        }, skill.duration * 1000);
+
         gameState.effects.push(new AuraEffect(this, 50, '#4ecca3'));
     }
 
-    vanheoPiercingArrow(targetX, targetY, gameState) {
-        const ability = this.abilities.r;
-        
+    vanheoPiercingArrow(skill, direction, gameState) {
+        const targetX = this.x + Math.cos(direction) * skill.range;
+        const targetY = this.y + Math.sin(direction) * skill.range;
+
         gameState.projectiles.push(
-            new Projectile(this.x, this.y, targetX, targetY, ability.damage, 1000, this, {
+            new Projectile(this.x, this.y, targetX, targetY, skill.damage, 1000, this, {
                 color: '#9b59b6',
                 piercing: true,
-                maxDistance: ability.range
+                maxDistance: skill.range
             })
         );
-        
+
         gameState.effects.push(new AbilityEffect(this.x, this.y, 80, '#9b59b6'));
     }
 
-    vanheoRainOfArrows(targetX, targetY, gameState) {
-        const ability = this.abilities.t;
-        
-        const damagePerTick = ability.damage / ability.duration;
-        const ticks = ability.duration;
-        
-        for (let i = 0; i < ticks; i++) {
+    vanheoRainOfArrows(skill, targetX, targetY, gameState) {
+        const damagePerTick = skill.damage / skill.ticks;
+
+        for (let i = 0; i < skill.ticks; i++) {
             setTimeout(() => {
                 if (this.isDead) return;
-                
-                const targets = getEntitiesInRadius(targetX, targetY, ability.radius, 
-                    [...gameState.heroes, ...gameState.minions], 
+
+                const targets = getEntitiesInRadius(targetX, targetY, skill.radius,
+                    [...gameState.heroes, ...gameState.minions],
                     e => e.team !== this.team && !e.isDead
                 );
-                
+
                 for (const target of targets) {
                     const damage = calculateDamage(this, target, damagePerTick, true, false);
                     target.takeDamage(damage, this);
@@ -401,349 +423,503 @@ class Hero extends Entity {
                 }
             }, i * 1000);
         }
-        
-        gameState.effects.push(new AbilityEffect(targetX, targetY, ability.radius, '#e74c3c', ability.duration * 1000));
+
+        gameState.effects.push(new AbilityEffect(targetX, targetY, skill.radius, '#e74c3c', skill.duration * 1000));
     }
 
-    zephyDash(targetX, targetY, gameState) {
-        const ability = this.abilities.q;
-        const angle = Math.atan2(targetY - this.y, targetX - this.x);
-        const dashX = this.x + Math.cos(angle) * ability.range;
-        const dashY = this.y + Math.sin(angle) * ability.range;
-        
+    zephyDash(skill, direction, gameState) {
+        const dashX = this.x + Math.cos(direction) * skill.range;
+        const dashY = this.y + Math.sin(direction) * skill.range;
+
         this.x = dashX;
         this.y = dashY;
-        
-        const targets = getEntitiesInRadius(this.x, this.y, 150, 
-            [...gameState.heroes, ...gameState.minions], 
+
+        const targets = getEntitiesInRadius(this.x, this.y, skill.impactRadius || 150,
+            [...gameState.heroes, ...gameState.minions],
             e => e.team !== this.team && !e.isDead
         );
-        
+
         for (const target of targets) {
-            const damage = calculateDamage(this, target, ability.damage, true, false);
+            const damage = calculateDamage(this, target, skill.damage, true, false);
             target.takeDamage(damage, this);
             gameState.effects.push(new HitEffect(target.x, target.y, damage));
         }
-        
+
         gameState.effects.push(new ParticleEffect(this.x, this.y, 15, '#e74c3c'));
     }
 
-    zephyIronWall(gameState) {
-        const ability = this.abilities.e;
-        
+    zephyIronWall(skill, gameState) {
         this.buffs.push({
             type: 'damageReduction',
-            value: ability.damageReduction,
-            duration: ability.duration * 1000
+            value: skill.damageReduction,
+            duration: skill.duration * 1000
         });
-        
+
         gameState.effects.push(new AuraEffect(this, 60, '#95a5a6', 1));
     }
 
-    zephyGroundSlam(gameState) {
-        const ability = this.abilities.r;
-        
-        const targets = getEntitiesInRadius(this.x, this.y, ability.radius, 
-            [...gameState.heroes, ...gameState.minions], 
+    zephyGroundSlam(skill, gameState) {
+        const targets = getEntitiesInRadius(this.x, this.y, skill.radius,
+            [...gameState.heroes, ...gameState.minions],
             e => e.team !== this.team && !e.isDead
         );
-        
+
         for (const target of targets) {
-            const damage = calculateDamage(this, target, ability.damage, true, false);
+            const damage = calculateDamage(this, target, skill.damage, true, false);
             target.takeDamage(damage, this);
             gameState.effects.push(new HitEffect(target.x, target.y, damage));
         }
-        
-        gameState.effects.push(new AbilityEffect(this.x, this.y, ability.radius, '#e67e22'));
+
+        gameState.effects.push(new AbilityEffect(this.x, this.y, skill.radius, '#e67e22'));
     }
 
-    zephyEarthquake(targetX, targetY, gameState) {
-        const ability = this.abilities.t;
-        
-        const targets = getEntitiesInRadius(targetX, targetY, ability.radius, 
-            [...gameState.heroes, ...gameState.minions], 
+    zephyEarthquake(skill, targetX, targetY, gameState) {
+        const targets = getEntitiesInRadius(targetX, targetY, skill.radius,
+            [...gameState.heroes, ...gameState.minions],
             e => e.team !== this.team && !e.isDead
         );
-        
+
         for (const target of targets) {
-            const damage = calculateDamage(this, target, ability.damage, true, false);
+            const damage = calculateDamage(this, target, skill.damage, true, false);
             target.takeDamage(damage, this);
             gameState.effects.push(new HitEffect(target.x, target.y, damage));
-            
+
             if (target instanceof Hero) {
                 target.isStunned = true;
                 target.debuffs.push({
                     type: 'stun',
-                    duration: ability.stunDuration * 1000
+                    duration: skill.stunDuration * 1000
                 });
-                
+
                 setTimeout(() => {
                     target.isStunned = false;
-                }, ability.stunDuration * 1000);
+                }, skill.stunDuration * 1000);
             }
         }
-        
-        gameState.effects.push(new AbilityEffect(targetX, targetY, ability.radius, '#c0392b', 1000));
+
+        gameState.effects.push(new AbilityEffect(targetX, targetY, skill.radius, '#c0392b', 1000));
     }
 
-    laloFireball(targetX, targetY, gameState) {
-        const ability = this.abilities.q;
-        
+    laloFireball(skill, direction, gameState) {
+        const targetX = this.x + Math.cos(direction) * skill.range;
+        const targetY = this.y + Math.sin(direction) * skill.range;
+
         gameState.projectiles.push(
-            new Projectile(this.x, this.y, targetX, targetY, ability.damage, 600, this, {
+            new Projectile(this.x, this.y, targetX, targetY, skill.damage, 600, this, {
                 color: '#e74c3c',
-                aoe: ability.radius,
+                aoe: skill.aoeRadius,
                 size: 12
             })
         );
     }
 
-    laloFrostNova(targetX, targetY, gameState) {
-        const ability = this.abilities.e;
-        
-        const targets = getEntitiesInRadius(targetX, targetY, ability.radius, 
-            [...gameState.heroes, ...gameState.minions], 
+    laloFrostNova(skill, targetX, targetY, gameState) {
+        const targets = getEntitiesInRadius(targetX, targetY, skill.radius,
+            [...gameState.heroes, ...gameState.minions],
             e => e.team !== this.team && !e.isDead
         );
-        
+
         for (const target of targets) {
-            const damage = calculateDamage(this, target, ability.damage, false, false);
+            const damage = calculateDamage(this, target, skill.damage, false, false);
             target.takeDamage(damage, this);
             gameState.effects.push(new HitEffect(target.x, target.y, damage));
-            
+
             if (target.stats && target.stats.movementSpeed) {
                 const originalSpeed = target.stats.movementSpeed;
-                target.stats.movementSpeed *= (1 - ability.slowAmount);
-                
+                target.stats.movementSpeed *= (1 - skill.slowAmount);
+
                 setTimeout(() => {
                     target.stats.movementSpeed = originalSpeed;
-                }, ability.slowDuration * 1000);
+                }, skill.slowDuration * 1000);
             }
         }
-        
-        gameState.effects.push(new AbilityEffect(targetX, targetY, ability.radius, '#3498db'));
+
+        gameState.effects.push(new AbilityEffect(targetX, targetY, skill.radius, '#3498db'));
     }
 
-    laloLightning(targetX, targetY, gameState) {
-        const ability = this.abilities.r;
-        
-        const targets = getEntitiesInRadius(targetX, targetY, 100, 
-            gameState.heroes.filter(h => h.team !== this.team && !h.isDead), 
+    laloLightning(skill, targetX, targetY, gameState) {
+        const targets = getEntitiesInRadius(targetX, targetY, 100,
+            gameState.heroes.filter(h => h.team !== this.team && !h.isDead),
             () => true
         );
-        
+
         for (const target of targets) {
-            const damage = calculateDamage(this, target, ability.damage, false, false);
+            const damage = calculateDamage(this, target, skill.damage, false, false);
             target.takeDamage(damage, this);
             gameState.effects.push(new HitEffect(target.x, target.y, damage));
             gameState.effects.push(new AbilityEffect(target.x, target.y, 50, '#9b59b6', 300));
         }
     }
 
-    laloMeteorStorm(targetX, targetY, gameState) {
-        const ability = this.abilities.t;
-        
-        for (let i = 0; i < ability.duration; i++) {
+    laloMeteorStorm(skill, targetX, targetY, gameState) {
+        for (let i = 0; i < skill.ticks; i++) {
             setTimeout(() => {
                 if (this.isDead) return;
-                
-                const targets = getEntitiesInRadius(targetX, targetY, ability.radius, 
-                    [...gameState.heroes, ...gameState.minions], 
+
+                const targets = getEntitiesInRadius(targetX, targetY, skill.radius,
+                    [...gameState.heroes, ...gameState.minions],
                     e => e.team !== this.team && !e.isDead
                 );
-                
+
                 for (const target of targets) {
-                    const damage = calculateDamage(this, target, ability.damage / ability.duration, false, false);
+                    const damage = calculateDamage(this, target, skill.damage / skill.ticks, false, false);
                     target.takeDamage(damage, this);
                     gameState.effects.push(new HitEffect(target.x, target.y, damage));
                 }
             }, i * 1000);
         }
-        
-        gameState.effects.push(new AbilityEffect(targetX, targetY, ability.radius, '#e74c3c', ability.duration * 1000));
+
+        gameState.effects.push(new AbilityEffect(targetX, targetY, skill.radius, '#e74c3c', skill.duration * 1000));
     }
 
-    nemoHeal(targetX, targetY, gameState) {
-        const ability = this.abilities.q;
-        
-        const angle = Math.atan2(targetY - this.y, targetX - this.x);
-        const healX = this.x + Math.cos(angle) * ability.range;
-        const healY = this.y + Math.sin(angle) * ability.range;
-        
-        const targets = getEntitiesInRadius(healX, healY, 100, 
-            gameState.heroes.filter(h => h.team === this.team && !h.isDead), 
+    nemoHeal(skill, targetX, targetY, gameState) {
+        const direction = Math.atan2(targetY - this.y, targetX - this.x);
+        const healX = this.x + Math.cos(direction) * skill.range;
+        const healY = this.y + Math.sin(direction) * skill.range;
+
+        const targets = getEntitiesInRadius(healX, healY, skill.healRadius || 100,
+            gameState.heroes.filter(h => h.team === this.team && !h.isDead),
             () => true
         );
-        
+
         for (const target of targets) {
-            const healAmount = ability.healing * (1 + this.stats.abilityPower / 100);
+            const healAmount = skill.healing * (1 + this.stats.abilityPower / 100);
             target.hp = Math.min(target.maxHp, target.hp + healAmount);
             gameState.effects.push(new AbilityEffect(target.x, target.y, 80, '#4ecca3'));
         }
     }
 
-    nemoShield(targetX, targetY, gameState) {
-        const ability = this.abilities.e;
-        
-        const angle = Math.atan2(targetY - this.y, targetX - this.x);
-        const shieldX = this.x + Math.cos(angle) * ability.range;
-        const shieldY = this.y + Math.sin(angle) * ability.range;
-        
-        const targets = getEntitiesInRadius(shieldX, shieldY, 100, 
-            gameState.heroes.filter(h => h.team === this.team && !h.isDead), 
+    nemoShield(skill, targetX, targetY, gameState) {
+        const direction = Math.atan2(targetY - this.y, targetX - this.x);
+        const shieldX = this.x + Math.cos(direction) * skill.range;
+        const shieldY = this.y + Math.sin(direction) * skill.range;
+
+        const targets = getEntitiesInRadius(shieldX, shieldY, skill.shieldRadius || 100,
+            gameState.heroes.filter(h => h.team === this.team && !h.isDead),
             () => true
         );
-        
+
         for (const target of targets) {
-            const shieldAmount = ability.shieldAmount * (1 + this.stats.abilityPower / 100);
+            const shieldAmount = skill.shieldAmount * (1 + this.stats.abilityPower / 100);
             target.buffs.push({
                 type: 'shield',
                 value: shieldAmount,
-                duration: ability.duration * 1000
+                duration: skill.duration * 1000
             });
-            gameState.effects.push(new AuraEffect(target, 60, '#3498db', ability.duration));
+            gameState.effects.push(new AuraEffect(target, 60, '#3498db', skill.duration));
         }
     }
 
-    nemoInspire(targetX, targetY, gameState) {
-        const ability = this.abilities.r;
-        
-        const angle = Math.atan2(targetY - this.y, targetX - this.x);
-        const inspireX = this.x + Math.cos(angle) * ability.range;
-        const inspireY = this.y + Math.sin(angle) * ability.range;
-        
-        const targets = getEntitiesInRadius(inspireX, inspireY, ability.range, 
-            gameState.heroes.filter(h => h.team === this.team && !h.isDead), 
+    nemoInspire(skill, targetX, targetY, gameState) {
+        const direction = Math.atan2(targetY - this.y, targetX - this.x);
+        const inspireX = this.x + Math.cos(direction) * skill.range;
+        const inspireY = this.y + Math.sin(direction) * skill.range;
+
+        const targets = getEntitiesInRadius(inspireX, inspireY, skill.range,
+            gameState.heroes.filter(h => h.team === this.team && !h.isDead),
             () => true
         );
-        
+
         for (const target of targets) {
-            const asBoost = ability.attackSpeedBoost;
-            const msBoost = ability.movementSpeedBoost;
-            
+            const asBoost = skill.attackSpeedBoost;
+            const msBoost = skill.movementSpeedBoost;
+
             target.stats.attackSpeed += asBoost;
             target.stats.movementSpeed += msBoost;
-            
+
             setTimeout(() => {
                 target.stats.attackSpeed -= asBoost;
                 target.stats.movementSpeed -= msBoost;
-            }, ability.duration * 1000);
-            
-            gameState.effects.push(new AuraEffect(target, 70, '#f39c12', ability.duration));
+            }, skill.duration * 1000);
+
+            gameState.effects.push(new AuraEffect(target, 70, '#f39c12', skill.duration));
         }
     }
 
-    nemoDivineIntervention(gameState) {
-        const ability = this.abilities.t;
-        
+    nemoDivineIntervention(skill, gameState) {
         const allies = gameState.heroes.filter(h => h.team === this.team && !h.isDead);
-        
+
         for (const ally of allies) {
-            const healAmount = ability.healing * (1 + this.stats.abilityPower / 100);
+            const healAmount = skill.healing * (1 + this.stats.abilityPower / 100);
             ally.hp = Math.min(ally.maxHp, ally.hp + healAmount);
-            
-            const shieldAmount = ability.shieldAmount * (1 + this.stats.abilityPower / 100);
+
+            const shieldAmount = skill.shieldAmount * (1 + this.stats.abilityPower / 100);
             ally.buffs.push({
                 type: 'shield',
                 value: shieldAmount,
                 duration: 5000
             });
-            
+
             gameState.effects.push(new AuraEffect(ally, 100, '#4ecca3', 2));
         }
-        
-        gameState.effects.push(new AbilityEffect(this.x, this.y, ability.radius, '#4ecca3', 500));
+
+        gameState.effects.push(new AbilityEffect(this.x, this.y, skill.radius, '#4ecca3', 500));
     }
 
-    balametanyShadowDash(targetX, targetY, gameState) {
-        const ability = this.abilities.q;
-        const angle = Math.atan2(targetY - this.y, targetX - this.x);
-        
-        this.x += Math.cos(angle) * ability.range;
-        this.y += Math.sin(angle) * ability.range;
-        
-        const targets = getEntitiesInRadius(this.x, this.y, 150, 
-            [...gameState.heroes, ...gameState.minions], 
+    balametanyShadowDash(skill, direction, gameState) {
+        this.x += Math.cos(direction) * skill.range;
+        this.y += Math.sin(direction) * skill.range;
+
+        const targets = getEntitiesInRadius(this.x, this.y, skill.impactRadius || 150,
+            [...gameState.heroes, ...gameState.minions],
             e => e.team !== this.team && !e.isDead
         );
-        
+
         for (const target of targets) {
-            const damage = calculateDamage(this, target, ability.damage, true, false);
+            const damage = calculateDamage(this, target, skill.damage, true, false);
             target.takeDamage(damage, this);
             gameState.effects.push(new HitEffect(target.x, target.y, damage));
         }
-        
+
         gameState.effects.push(new ParticleEffect(this.x, this.y, 10, '#8e44ad'));
     }
 
-    balametanyStealth(gameState) {
-        const ability = this.abilities.e;
-        
+    balametanyStealth(skill, gameState) {
         this.isInvisible = true;
         this.debuffs.push({
             type: 'invisible',
-            duration: ability.duration * 1000
+            duration: skill.duration * 1000
         });
-        
+
         setTimeout(() => {
             this.isInvisible = false;
-        }, ability.duration * 1000);
-        
-        gameState.effects.push(new AuraEffect(this, 50, 'rgba(142, 68, 173, 0.3)', ability.duration));
+        }, skill.duration * 1000);
+
+        gameState.effects.push(new AuraEffect(this, 50, 'rgba(142, 68, 173, 0.3)', skill.duration));
     }
 
-    balametanyExecute(targetX, targetY, gameState) {
-        const ability = this.abilities.r;
-        
-        const targets = getEntitiesInRadius(targetX, targetY, ability.range, 
-            [...gameState.heroes, ...gameState.minions], 
+    balametanyExecute(skill, targetX, targetY, gameState) {
+        const targets = getEntitiesInRadius(targetX, targetY, skill.range,
+            [...gameState.heroes, ...gameState.minions],
             e => e.team !== this.team && !e.isDead
         );
-        
+
         for (const target of targets) {
-            let damage = ability.baseDamage;
-            if (target.hp / target.maxHp < ability.executeThreshold) {
-                damage += ability.executeDamage;
+            let damage = skill.baseDamage;
+            if (target.hp / target.maxHp < skill.executeThreshold) {
+                damage += skill.executeDamage;
             }
-            
+
             const actualDamage = calculateDamage(this, target, damage, true, false);
             target.takeDamage(actualDamage, this);
             gameState.effects.push(new HitEffect(target.x, target.y, actualDamage));
         }
-        
+
         gameState.effects.push(new AbilityEffect(targetX, targetY, 100, '#8e44ad'));
     }
 
-    balametanyDeathMark(targetX, targetY, gameState) {
-        const ability = this.abilities.t;
-        
-        const angle = Math.atan2(targetY - this.y, targetX - this.x);
-        const teleportX = targetX - Math.cos(angle) * 100;
-        const teleportY = targetY - Math.sin(angle) * 100;
-        
-        this.x = teleportX;
-        this.y = teleportY;
-        
-        const targets = getEntitiesInRadius(targetX, targetY, 100, 
-            gameState.heroes.filter(h => h.team !== this.team && !h.isDead), 
+    balametanyDeathMark(skill, direction, gameState) {
+        const targetX = this.x + Math.cos(direction) * skill.range;
+        const targetY = this.y + Math.sin(direction) * skill.range;
+
+        this.x = targetX;
+        this.y = targetY;
+
+        const targets = getEntitiesInRadius(targetX, targetY, 100,
+            gameState.heroes.filter(h => h.team !== this.team && !h.isDead),
             () => true
         );
-        
+
         for (const target of targets) {
-            const damage = calculateDamage(this, target, ability.damage, true, false);
+            const damage = skill.damage;
             target.takeDamage(damage, this);
             gameState.effects.push(new HitEffect(target.x, target.y, damage));
-            
+
             setTimeout(() => {
                 if (!target.isDead) {
-                    const executeDamage = damage * ability.markMultiplier;
+                    const executeDamage = damage * skill.markMultiplier;
                     const finalDamage = calculateDamage(this, target, executeDamage, true, false);
                     target.takeDamage(finalDamage, this);
                     gameState.effects.push(new HitEffect(target.x, target.y, finalDamage));
                 }
-            }, ability.markDuration * 1000);
+            }, skill.markDuration * 1000);
         }
-        
-        gameState.effects.push(new AbilityEffect(targetX, targetY, 200, '#8e44ad', ability.markDuration * 1000));
+
+        gameState.effects.push(new AbilityEffect(targetX, targetY, 200, '#8e44ad', skill.markDuration * 1000));
+    }
+
+    autoAttack(targetX, targetY, gameState) {
+        if (this.canAttack()) {
+            const targets = [...gameState.minions, ...gameState.heroes]
+                .filter(e => e.team !== this.team && !e.isDead);
+
+            let closestTarget = null;
+            let closestDist = this.stats.attackRange;
+
+            for (const target of targets) {
+                const dist = this.distanceTo(target);
+                if (dist < closestDist) {
+                    closestTarget = target;
+                    closestDist = dist;
+                }
+            }
+
+            if (closestTarget) {
+                this.performAttack(closestTarget, gameState);
+            }
+        }
+    }
+
+    useSummonerSpell(targetX, targetY, gameState) {
+        if (!this.summonerSpell || !this.summonerSpell.isReady) return;
+        if (this.isStunned) return;
+
+        this.summonerSpell.currentCooldown = this.summonerSpell.cooldown;
+        this.summonerSpell.isReady = false;
+
+        switch (this.summonerSpell.id) {
+            case 'heal':
+                const healPercent = this.summonerSpell.healPercent;
+                this.hp = Math.min(this.maxHp, this.hp + this.maxHp * healPercent);
+                gameState.effects.push(new AbilityEffect(this.x, this.y, 50, '#4ecca3'));
+                break;
+            case 'flash':
+                const dx = targetX - this.x;
+                const dy = targetY - this.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                const flashRange = Math.min(this.summonerSpell.range, dist);
+
+                if (dist > 0) {
+                    const newX = this.x + (dx / dist) * flashRange;
+                    const newY = this.y + (dy / dist) * flashRange;
+
+                    if (!gameState.map.isCollidingWithWall(newX, newY, this.size)) {
+                        this.x = newX;
+                        this.y = newY;
+                    }
+                }
+                gameState.effects.push(new ParticleEffect(this.x, this.y, 10, '#f39c12'));
+                break;
+            case 'haste':
+                this.buffs.push({
+                    type: 'movementSpeed',
+                    value: 1,
+                    duration: this.summonerSpell.duration,
+                    customSpeed: this.summonerSpell.speed
+                });
+                gameState.effects.push(new AuraEffect(this, 50, '#f39c12', 2));
+                break;
+        }
+    }
+
+    gainXp(amount) {
+        this.xp += amount;
+        const xpToLevel = this.getXpForNextLevel();
+        while (this.xp >= xpToLevel) {
+            this.xp -= xpToLevel;
+            this.levelUp();
+        }
+    }
+
+    getXpForNextLevel() {
+        return 100 + (this.level - 1) * 50;
+    }
+
+    levelUp() {
+        this.level++;
+        this.respawnTime = Math.min(
+            CONFIG.RESPAWN_BASE_TIME + (this.level - 1) * CONFIG.RESPAWN_TIME_PER_LEVEL,
+            CONFIG.RESPAWN_MAX_TIME
+        );
+
+        if (this.growthStats) {
+            if (this.growthStats.hp) this.maxHp += this.growthStats.hp;
+            if (this.growthStats.mana) this.maxMana += this.growthStats.mana;
+            if (this.growthStats.damage) this.stats.damage += this.growthStats.damage;
+            if (this.growthStats.armor) this.stats.armor += this.growthStats.armor;
+            if (this.growthStats.magicResist) this.stats.magicResist += this.growthStats.magicResist;
+        }
+
+        this.hp = this.maxHp;
+        this.mana = this.maxMana;
+    }
+
+    gainGold(amount) {
+        this.gold += amount;
+    }
+
+    respawn(gameState) {
+        const spawnPoints = gameState.map.spawnPoints;
+        const spawn = this.team === CONFIG.TEAM_BLUE ? spawnPoints[CONFIG.TEAM_BLUE] : spawnPoints[CONFIG.TEAM_RED];
+
+        this.x = spawn.x;
+        this.y = spawn.y;
+        this.hp = this.maxHp;
+        this.mana = this.maxMana;
+        this.isDead = false;
+        this.deathTime = 0;
+
+        gameState.effects.push(new AbilityEffect(this.x, this.y, 100, '#4ecca3', 500));
+    }
+
+    draw(ctx, camera) {
+        if (this.isDead) return;
+        if (!camera.isVisible(this.x, this.y, this.size)) return;
+
+        const screenX = camera.xToScreen(this.x);
+        const screenY = camera.yToScreen(this.y);
+
+        ctx.save();
+        ctx.translate(screenX, screenY);
+
+        if (this.isInvisible) {
+            ctx.globalAlpha = 0.4;
+        }
+
+        const teamColor = this.team === CONFIG.TEAM_BLUE ? '#4ecca3' : '#e94560';
+        ctx.fillStyle = teamColor;
+        ctx.beginPath();
+        ctx.arc(0, 0, this.size, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (this.facingDirection !== undefined) {
+            ctx.rotate(this.facingDirection);
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.moveTo(this.size, 0);
+            ctx.lineTo(this.size - 10, -5);
+            ctx.lineTo(this.size - 10, 5);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        ctx.restore();
+
+        ctx.fillStyle = '#fff';
+        ctx.font = '14px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(this.emoji || '', screenX, screenY - this.size - 25);
+
+        ctx.fillStyle = '#fff';
+        ctx.font = '12px Arial';
+        ctx.fillText(this.name, screenX, screenY - this.size - 40);
+
+        this.drawHealthBar(ctx, camera);
+    }
+
+    drawHealthBar(ctx, camera) {
+        const screenX = camera.xToScreen(this.x);
+        const screenY = camera.yToScreen(this.y);
+
+        const barWidth = this.size * 2;
+        const barHeight = 6;
+        const x = screenX - barWidth / 2;
+        const y = screenY - this.size - 15;
+
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.fillRect(x, y, barWidth, barHeight);
+
+        const hpPercent = this.hp / this.maxHp;
+        const hpColor = hpPercent > 0.5 ? '#4ecca3' : hpPercent > 0.25 ? '#f39c12' : '#e94560';
+
+        ctx.fillStyle = hpColor;
+        ctx.fillRect(x, y, barWidth * hpPercent, barHeight);
+
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x, y, barWidth, barHeight);
     }
 }
+
+export { Hero };
+export { Hero as default };

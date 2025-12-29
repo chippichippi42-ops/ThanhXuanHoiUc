@@ -56,6 +56,7 @@ class Game {
         this.uiManager = new UIManager(this.gameState);
         this.combatSystem = new CombatSystem(this.gameState);
         this.gameState.combatSystem = this.combatSystem;
+        this.gameState.inputManager = this.inputManager;
         
         this.gameState.heroes = [];
         this.gameState.minions = [];
@@ -80,7 +81,7 @@ class Game {
     }
 
     createHeroes(config) {
-        const availableHeroes = Object.keys(HERO_DATA);
+        const availableHeroes = Object.keys(HEROES);
         const playerHeroId = config.playerHeroId;
         
         const blueSpawn = this.gameState.map.spawnPoints[CONFIG.TEAM_BLUE];
@@ -90,7 +91,7 @@ class Game {
             blueSpawn.x,
             blueSpawn.y,
             CONFIG.TEAM_BLUE,
-            HERO_DATA[playerHeroId],
+            playerHeroId,
             true
         );
         playerHero.setSummonerSpell(config.summonerSpell);
@@ -112,7 +113,7 @@ class Game {
                 blueSpawn.x + offsetX,
                 blueSpawn.y + offsetY,
                 CONFIG.TEAM_BLUE,
-                HERO_DATA[heroId],
+                heroId,
                 false
             );
             ally.setSummonerSpell(randomChoice(['heal', 'flash', 'haste']));
@@ -137,7 +138,7 @@ class Game {
                 redSpawn.x + offsetX,
                 redSpawn.y + offsetY,
                 CONFIG.TEAM_RED,
-                HERO_DATA[heroId],
+                heroId,
                 false
             );
             enemy.setSummonerSpell(randomChoice(['heal', 'flash', 'haste']));
