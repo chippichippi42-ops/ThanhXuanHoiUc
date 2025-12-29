@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>MOBA 3v3 Arena</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div id="app">
+        <div id="startScreen" class="screen active">
+            <div class="screen-content">
+                <h1 class="game-title">MOBA 3v3 ARENA</h1>
+                <div class="menu-buttons">
+                    <button id="playBtn" class="menu-btn">PLAY</button>
+                    <button id="settingsBtn" class="menu-btn">SETTINGS</button>
+                    <button id="exitBtn" class="menu-btn">EXIT GAME</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="preGameScreen" class="screen">
+            <div class="screen-content">
+                <h2>Pre-Game Setup</h2>
+                
+                <div class="setup-section">
+                    <h3>Select Your Hero</h3>
+                    <div id="heroSelection" class="hero-grid"></div>
+                </div>
+
+                <div class="setup-section">
+                    <h3>Select Summoner Spell</h3>
+                    <div id="summonerSelection" class="summoner-grid">
+                        <div class="summoner-card" data-spell="heal">
+                            <div class="summoner-icon">H</div>
+                            <div class="summoner-name">Heal</div>
+                            <div class="summoner-desc">Restore 12% max HP<br>CD: 45s</div>
+                        </div>
+                        <div class="summoner-card" data-spell="flash">
+                            <div class="summoner-icon">F</div>
+                            <div class="summoner-name">Flash</div>
+                            <div class="summoner-desc">Teleport forward<br>CD: 60s</div>
+                        </div>
+                        <div class="summoner-card" data-spell="haste">
+                            <div class="summoner-icon">HA</div>
+                            <div class="summoner-name">Haste</div>
+                            <div class="summoner-desc">800 MS for 10s<br>CD: 40s</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="setup-section">
+                    <h3>AI Difficulty</h3>
+                    <div class="difficulty-controls">
+                        <div class="difficulty-row">
+                            <label>Enemy AI:</label>
+                            <input type="range" id="enemyDifficulty" min="1" max="3" value="2">
+                            <span id="enemyDifficultyLabel">Normal</span>
+                        </div>
+                        <div class="difficulty-row">
+                            <label>Ally AI:</label>
+                            <input type="range" id="allyDifficulty" min="1" max="3" value="2">
+                            <span id="allyDifficultyLabel">Normal</span>
+                        </div>
+                    </div>
+                </div>
+
+                <button id="startGameBtn" class="menu-btn">START GAME</button>
+                <button id="backToMenuBtn" class="menu-btn secondary">BACK</button>
+            </div>
+        </div>
+
+        <div id="settingsScreen" class="screen">
+            <div class="screen-content">
+                <h2>Settings</h2>
+                
+                <div class="settings-section">
+                    <h3>Audio</h3>
+                    <div class="setting-row">
+                        <label>Master Volume:</label>
+                        <input type="range" id="masterVolume" min="0" max="100" value="70">
+                        <span id="masterVolumeLabel">70%</span>
+                    </div>
+                    <div class="setting-row">
+                        <label>SFX Volume:</label>
+                        <input type="range" id="sfxVolume" min="0" max="100" value="70">
+                        <span id="sfxVolumeLabel">70%</span>
+                    </div>
+                    <div class="setting-row">
+                        <label>Mute All:</label>
+                        <input type="checkbox" id="muteAll">
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3>Gameplay</h3>
+                    <div class="setting-row">
+                        <label>Camera Smoothing:</label>
+                        <input type="range" id="cameraSmoothing" min="0" max="100" value="80">
+                        <span id="cameraSmoothingLabel">80%</span>
+                    </div>
+                    <div class="setting-row">
+                        <label>Auto Attack:</label>
+                        <input type="checkbox" id="autoAttack" checked>
+                    </div>
+                    <div class="setting-row">
+                        <label>Show Grid:</label>
+                        <input type="checkbox" id="showGrid">
+                    </div>
+                </div>
+
+                <div class="settings-buttons">
+                    <button id="applySettingsBtn" class="menu-btn">APPLY</button>
+                    <button id="resetSettingsBtn" class="menu-btn secondary">RESET</button>
+                    <button id="closeSettingsBtn" class="menu-btn secondary">CLOSE</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="gameScreen" class="screen">
+            <div id="gameHUD">
+                <div id="topHUD">
+                    <div id="minimapContainer">
+                        <canvas id="minimap"></canvas>
+                    </div>
+                    <div id="gameTimer">00:00</div>
+                    <div id="teamStatus">
+                        <div id="allyTeam" class="team-panel"></div>
+                    </div>
+                </div>
+
+                <div id="bottomHUD">
+                    <div id="playerStats">
+                        <div id="heroIcon"></div>
+                        <div id="heroInfo">
+                            <div id="heroName"></div>
+                            <div id="heroLevel"></div>
+                            <div id="xpBar" class="progress-bar">
+                                <div id="xpProgress" class="progress-fill"></div>
+                            </div>
+                        </div>
+                        <div id="resourceBars">
+                            <div id="hpBar" class="resource-bar hp">
+                                <div id="hpFill" class="resource-fill"></div>
+                                <span id="hpText" class="resource-text"></span>
+                            </div>
+                            <div id="manaBar" class="resource-bar mana">
+                                <div id="manaFill" class="resource-fill"></div>
+                                <span id="manaText" class="resource-text"></span>
+                            </div>
+                        </div>
+                        <div id="playerMeta">
+                            <div id="goldCounter">💰 <span>0</span></div>
+                            <div id="kdaCounter">K/D/A: <span>0/0/0</span></div>
+                        </div>
+                    </div>
+
+                    <div id="abilityBar">
+                        <div class="ability-slot" data-key="q">
+                            <div class="ability-icon">Q</div>
+                            <div class="ability-cooldown"></div>
+                            <div class="ability-key">Q</div>
+                        </div>
+                        <div class="ability-slot" data-key="e">
+                            <div class="ability-icon">E</div>
+                            <div class="ability-cooldown"></div>
+                            <div class="ability-key">E</div>
+                        </div>
+                        <div class="ability-slot" data-key="r">
+                            <div class="ability-icon">R</div>
+                            <div class="ability-cooldown"></div>
+                            <div class="ability-key">R</div>
+                        </div>
+                        <div class="ability-slot" data-key="t">
+                            <div class="ability-icon">T</div>
+                            <div class="ability-cooldown"></div>
+                            <div class="ability-key">T</div>
+                        </div>
+                        <div class="ability-slot" data-key="f">
+                            <div class="ability-icon">F</div>
+                            <div class="ability-cooldown"></div>
+                            <div class="ability-key">F</div>
+                        </div>
+                        <div class="ability-slot" data-key=" ">
+                            <div class="ability-icon">⚔</div>
+                            <div class="ability-cooldown"></div>
+                            <div class="ability-key">Space</div>
+                        </div>
+                    </div>
+
+                    <div id="pauseButton" class="hud-button">⏸</div>
+                </div>
+            </div>
+
+            <canvas id="gameCanvas"></canvas>
+        </div>
+
+        <div id="pauseScreen" class="screen overlay">
+            <div class="screen-content">
+                <h2>PAUSED</h2>
+                <div class="menu-buttons">
+                    <button id="resumeBtn" class="menu-btn">RESUME</button>
+                    <button id="pauseSettingsBtn" class="menu-btn">SETTINGS</button>
+                    <button id="quitToLobbyBtn" class="menu-btn secondary">QUIT TO LOBBY</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="statsScreen" class="screen overlay">
+            <div class="screen-content stats-window">
+                <h2>Hero Statistics</h2>
+                <button id="closeStatsBtn" class="close-btn">×</button>
+                <div id="statsContent"></div>
+            </div>
+        </div>
+
+        <div id="gameOverScreen" class="screen overlay">
+            <div class="screen-content">
+                <h1 id="gameResult"></h1>
+                <div id="matchStats">
+                    <h3>Match Statistics</h3>
+                    <div id="statsTable"></div>
+                    <div id="matchInfo"></div>
+                </div>
+                <div class="menu-buttons">
+                    <button id="playAgainBtn" class="menu-btn">PLAY AGAIN</button>
+                    <button id="mainMenuBtn" class="menu-btn secondary">MAIN MENU</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/config.js"></script>
+    <script src="js/utils.js"></script>
+    <script src="js/map.js"></script>
+    <script src="js/camera.js"></script>
+    <script src="js/minimap.js"></script>
+    <script src="js/entity.js"></script>
+    <script src="js/projectile.js"></script>
+    <script src="js/effects.js"></script>
+    <script src="js/hero.js"></script>
+    <script src="js/minion.js"></script>
+    <script src="js/creature.js"></script>
+    <script src="js/tower.js"></script>
+    <script src="js/combat.js"></script>
+    <script src="js/aiReactive.js"></script>
+    <script src="js/aiTactical.js"></script>
+    <script src="js/input.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/screens.js"></script>
+    <script src="js/game.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
