@@ -1,45 +1,81 @@
+const DEFAULT_HERO_BASE_STATS = {
+    hp: 500,
+    mana: 250,
+    damage: 55,
+    armor: 25,
+    magicResist: 30,
+    abilityPower: 0,
+    attackSpeed: 0.7,
+    movementSpeed: 330,
+    attackRange: 150,
+    critChance: 0,
+    critDamage: 1.5,
+    lifeSteal: 0,
+    spellVamp: 0,
+    hpRegen: 0.02,
+    manaRegen: 0.03
+};
+
 class Hero extends Entity {
     constructor(x, y, team, heroData, isPlayer = false) {
         super(x, y, team);
-        
-        this.heroData = heroData;
-        this.heroId = heroData.id;
-        this.name = heroData.name;
-        this.role = heroData.role;
+
+        const fallbackHeroData = (typeof HERO_DATA !== 'undefined' && HERO_DATA)
+            ? HERO_DATA[Object.keys(HERO_DATA)[0]]
+            : null;
+
+        this.heroData = heroData || fallbackHeroData || {
+            id: 'unknown',
+            name: 'Unknown',
+            role: 'Unknown',
+            emoji: '❓',
+            baseStats: { ...DEFAULT_HERO_BASE_STATS },
+            growthStats: {},
+            abilities: {}
+        };
+
+        this.heroId = this.heroData.id || 'unknown';
+        this.name = this.heroData.name || 'Unknown';
+        this.role = this.heroData.role || 'Unknown';
         this.isPlayer = isPlayer;
         this.isAI = !isPlayer;
-        
+
         this.level = 1;
         this.xp = 0;
         this.gold = 500;
         this.kills = 0;
         this.deaths = 0;
         this.assists = 0;
-        
-        this.stats = { ...heroData.baseStats };
-        this.maxHp = this.stats.hp;
+
+        const baseStats = this.heroData.baseStats && typeof this.heroData.baseStats === 'object'
+            ? this.heroData.baseStats
+            : {};
+
+        this.stats = { ...DEFAULT_HERO_BASE_STATS, ...baseStats };
+        this.maxHp = this.stats.hp || DEFAULT_HERO_BASE_STATS.hp;
         this.hp = this.maxHp;
-        this.maxMana = this.stats.mana;
+        this.maxMana = this.stats.mana || 0;
         this.mana = this.maxMana;
         this.size = 25;
-        
+
         this.abilities = this.createAbilities();
         this.summonerSpell = null;
-        
-        this.attackCooldown = 1000 / this.stats.attackSpeed;
-        
+
+        const attackSpeed = Math.max(0.1, this.stats.attackSpeed || DEFAULT_HERO_BASE_STATS.attackSpeed);
+        this.attackCooldown = 1000 / attackSpeed;
+
         this.buffs = [];
         this.debuffs = [];
-        
+
         this.isStunned = false;
         this.isInvisible = false;
         this.damageReduction = 0;
-        
+
         this.respawnTime = 0;
         this.deathTime = 0;
-        
+
         this.lastDamageDealtTo = new Map();
-        
+
         this.aiData = {
             targetEnemy: null,
             strategy: 'FARM_SAFE',
@@ -49,8 +85,14 @@ class Hero extends Entity {
 
     createAbilities() {
         const abilities = {};
-        
-        for (const [key, abilityData] of Object.entries(this.heroData.abilities)) {
+
+        const heroAbilities = this.heroData?.abilities && typeof this.heroData.abilities === 'object'
+            ? this.heroData.abilities
+            : {};
+
+        for (const [key, abilityData] of Object.entries(heroAbilities)) {
+            if (!abilityData || typeof abilityData !== 'object') continue;
+
             abilities[key] = {
                 ...abilityData,
                 currentCooldown: 0,
@@ -58,7 +100,7 @@ class Hero extends Entity {
                 level: key === 'r' ? 0 : 1
             };
         }
-        
+
         return abilities;
     }
 
@@ -730,27 +772,30 @@ class Hero extends Entity {
 
     levelUp(gameState) {
         this.level++;
-        
-        const growth = this.heroData.growthStats;
-        this.stats.hp += growth.hp;
-        this.stats.mana += growth.mana;
-        this.stats.damage += growth.damage;
-        this.stats.armor += growth.armor;
-        this.stats.magicResist += growth.magicResist;
-        
+
+        const growth = this.heroData?.growthStats && typeof this.heroData.growthStats === 'object'
+            ? this.heroData.growthStats
+            : {};
+
+        this.stats.hp += growth.hp || 0;
+        this.stats.mana += growth.mana || 0;
+        this.stats.damage += growth.damage || 0;
+        this.stats.armor += growth.armor || 0;
+        this.stats.magicResist += growth.magicResist || 0;
+
         if (growth.abilityPower) {
             this.stats.abilityPower += growth.abilityPower;
         }
-        
+
         this.maxHp = this.stats.hp * (1 + (this.level - 1) * STAT_GROWTH_PER_LEVEL.hpPercent);
         this.hp = this.maxHp;
         this.maxMana = this.stats.mana * (1 + (this.level - 1) * STAT_GROWTH_PER_LEVEL.manaPercent);
         this.mana = this.maxMana;
-        
-        if (this.level === 6 || this.level === 11 || this.level === 16) {
+
+        if ((this.level === 6 || this.level === 11 || this.level === 16) && this.abilities?.r) {
             this.abilities.r.level++;
         }
-        
+
         if (gameState.effects) {
             gameState.effects.push(new AbilityEffect(this.x, this.y, 150, '#f1c40f', 1000));
         }
@@ -829,7 +874,7 @@ class Hero extends Entity {
             ctx.globalAlpha = 0.3;
         }
         
-        const emoji = this.heroData.emoji;
+        const emoji = this.heroData?.emoji || '❓';
         ctx.font = `${this.size * 2}px Arial`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
@@ -863,7 +908,7 @@ class Hero extends Entity {
         ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
         ctx.fillRect(x, y, barWidth, barHeight);
         
-        const manaPercent = this.mana / this.maxMana;
+        const manaPercent = this.maxMana > 0 ? this.mana / this.maxMana : 0;
         ctx.fillStyle = '#3498db';
         ctx.fillRect(x, y, barWidth * manaPercent, barHeight);
         

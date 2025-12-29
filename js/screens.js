@@ -1,11 +1,12 @@
 class ScreenManager {
     constructor() {
         this.currentScreen = 'startScreen';
+        this.screenBeforeSettings = this.currentScreen;
         this.selectedHero = null;
         this.selectedSummonerSpell = 'heal';
         this.enemyDifficulty = 2;
         this.allyDifficulty = 2;
-        
+
         this.setupEventListeners();
         this.populateHeroSelection();
     }
@@ -18,41 +19,41 @@ class ScreenManager {
         
         const settingsBtn = document.getElementById('settingsBtn');
         if (settingsBtn) {
-            settingsBtn.addEventListener('click', () => this.showScreen('settingsScreen'));
+            settingsBtn.addEventListener('click', () => this.openSettings());
         }
-        
+
         const exitBtn = document.getElementById('exitBtn');
         if (exitBtn) {
             exitBtn.addEventListener('click', () => {
                 alert('Thanks for playing!');
             });
         }
-        
+
         const startGameBtn = document.getElementById('startGameBtn');
         if (startGameBtn) {
             startGameBtn.addEventListener('click', () => this.startGame());
         }
-        
+
         const backToMenuBtn = document.getElementById('backToMenuBtn');
         if (backToMenuBtn) {
             backToMenuBtn.addEventListener('click', () => this.showScreen('startScreen'));
         }
-        
+
         const pauseButton = document.getElementById('pauseButton');
         if (pauseButton) {
             pauseButton.addEventListener('click', () => this.pauseGame());
         }
-        
+
         const resumeBtn = document.getElementById('resumeBtn');
         if (resumeBtn) {
             resumeBtn.addEventListener('click', () => this.resumeGame());
         }
-        
+
         const pauseSettingsBtn = document.getElementById('pauseSettingsBtn');
         if (pauseSettingsBtn) {
-            pauseSettingsBtn.addEventListener('click', () => this.showScreen('settingsScreen'));
+            pauseSettingsBtn.addEventListener('click', () => this.openSettings());
         }
-        
+
         const quitToLobbyBtn = document.getElementById('quitToLobbyBtn');
         if (quitToLobbyBtn) {
             quitToLobbyBtn.addEventListener('click', () => {
@@ -60,10 +61,10 @@ class ScreenManager {
                 this.showScreen('startScreen');
             });
         }
-        
+
         const closeSettingsBtn = document.getElementById('closeSettingsBtn');
         if (closeSettingsBtn) {
-            closeSettingsBtn.addEventListener('click', () => this.showScreen(this.currentScreen));
+            closeSettingsBtn.addEventListener('click', () => this.closeSettings());
         }
         
         const applySettingsBtn = document.getElementById('applySettingsBtn');
@@ -199,7 +200,7 @@ class ScreenManager {
 
     selectHero(heroId) {
         this.selectedHero = heroId;
-        
+
         const cards = document.querySelectorAll('.hero-card');
         cards.forEach(card => {
             if (card.dataset.heroId === heroId) {
@@ -210,10 +211,30 @@ class ScreenManager {
         });
     }
 
+    openSettings() {
+        if (this.currentScreen !== 'settingsScreen') {
+            this.screenBeforeSettings = this.currentScreen;
+        }
+        this.showScreen('settingsScreen');
+    }
+
+    closeSettings() {
+        const returnScreen = this.screenBeforeSettings || 'startScreen';
+        this.showScreen(returnScreen);
+    }
+
+    toggleSettings() {
+        if (this.currentScreen === 'settingsScreen') {
+            this.closeSettings();
+        } else {
+            this.openSettings();
+        }
+    }
+
     showScreen(screenId) {
         const screens = document.querySelectorAll('.screen');
         screens.forEach(screen => screen.classList.remove('active'));
-        
+
         const targetScreen = document.getElementById(screenId);
         if (targetScreen) {
             targetScreen.classList.add('active');
