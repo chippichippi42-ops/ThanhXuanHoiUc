@@ -1,357 +1,502 @@
-class ScreenManager {
-    constructor() {
-        this.currentScreen = 'startScreen';
-        this.screenBeforeSettings = this.currentScreen;
-        this.selectedHero = null;
-        this.selectedSummonerSpell = 'heal';
-        this.enemyDifficulty = 2;
-        this.allyDifficulty = 2;
+/**
+ * ========================================
+ * MOBA Arena - Screen Management (Updated)
+ * ========================================
+ */
 
+const Screens = {
+    currentScreen: 'start',
+    screens: {},
+    previousScreen: null, // Thêm biến lưu màn hình trước đó
+    
+    // Selection state
+    selectedHero: null,
+    selectedSpell: 'flash',
+    allyDifficulty: 'normal',
+    enemyDifficulty: 'normal',
+    playerName: CONFIG.game.defaultPlayerName,
+    
+    /**
+     * Khởi tạo screens
+     */
+    init() {
+        this.cacheScreens();
         this.setupEventListeners();
-        this.populateHeroSelection();
-    }
-
-    setupEventListeners() {
-        const playBtn = document.getElementById('playBtn');
-        if (playBtn) {
-            playBtn.addEventListener('click', () => this.showScreen('preGameScreen'));
-        }
-        
-        const settingsBtn = document.getElementById('settingsBtn');
-        if (settingsBtn) {
-            settingsBtn.addEventListener('click', () => this.openSettings());
-        }
-
-        const exitBtn = document.getElementById('exitBtn');
-        if (exitBtn) {
-            exitBtn.addEventListener('click', () => {
-                alert('Thanks for playing!');
-            });
-        }
-
-        const startGameBtn = document.getElementById('startGameBtn');
-        if (startGameBtn) {
-            startGameBtn.addEventListener('click', () => this.startGame());
-        }
-
-        const backToMenuBtn = document.getElementById('backToMenuBtn');
-        if (backToMenuBtn) {
-            backToMenuBtn.addEventListener('click', () => this.showScreen('startScreen'));
-        }
-
-        const pauseButton = document.getElementById('pauseButton');
-        if (pauseButton) {
-            pauseButton.addEventListener('click', () => this.pauseGame());
-        }
-
-        const resumeBtn = document.getElementById('resumeBtn');
-        if (resumeBtn) {
-            resumeBtn.addEventListener('click', () => this.resumeGame());
-        }
-
-        const pauseSettingsBtn = document.getElementById('pauseSettingsBtn');
-        if (pauseSettingsBtn) {
-            pauseSettingsBtn.addEventListener('click', () => this.openSettings());
-        }
-
-        const quitToLobbyBtn = document.getElementById('quitToLobbyBtn');
-        if (quitToLobbyBtn) {
-            quitToLobbyBtn.addEventListener('click', () => {
-                this.resumeGame();
-                this.showScreen('startScreen');
-            });
-        }
-
-        const closeSettingsBtn = document.getElementById('closeSettingsBtn');
-        if (closeSettingsBtn) {
-            closeSettingsBtn.addEventListener('click', () => this.closeSettings());
-        }
-        
-        const applySettingsBtn = document.getElementById('applySettingsBtn');
-        if (applySettingsBtn) {
-            applySettingsBtn.addEventListener('click', () => this.applySettings());
-        }
-        
-        const resetSettingsBtn = document.getElementById('resetSettingsBtn');
-        if (resetSettingsBtn) {
-            resetSettingsBtn.addEventListener('click', () => this.resetSettings());
-        }
-        
-        const closeStatsBtn = document.getElementById('closeStatsBtn');
-        if (closeStatsBtn) {
-            closeStatsBtn.addEventListener('click', () => {
-                document.getElementById('statsScreen').classList.remove('active');
-            });
-        }
-        
-        const playAgainBtn = document.getElementById('playAgainBtn');
-        if (playAgainBtn) {
-            playAgainBtn.addEventListener('click', () => {
-                this.showScreen('preGameScreen');
-            });
-        }
-        
-        const mainMenuBtn = document.getElementById('mainMenuBtn');
-        if (mainMenuBtn) {
-            mainMenuBtn.addEventListener('click', () => {
-                this.showScreen('startScreen');
-            });
-        }
-        
-        this.setupDifficultySliders();
-        this.setupSettingsSliders();
-    }
-
-    setupDifficultySliders() {
-        const enemyDifficulty = document.getElementById('enemyDifficulty');
-        const enemyDifficultyLabel = document.getElementById('enemyDifficultyLabel');
-        
-        if (enemyDifficulty) {
-            enemyDifficulty.addEventListener('input', (e) => {
-                this.enemyDifficulty = parseInt(e.target.value);
-                const labels = ['Easy', 'Normal', 'Hard'];
-                if (enemyDifficultyLabel) {
-                    enemyDifficultyLabel.textContent = labels[this.enemyDifficulty - 1];
-                }
-            });
-        }
-        
-        const allyDifficulty = document.getElementById('allyDifficulty');
-        const allyDifficultyLabel = document.getElementById('allyDifficultyLabel');
-        
-        if (allyDifficulty) {
-            allyDifficulty.addEventListener('input', (e) => {
-                this.allyDifficulty = parseInt(e.target.value);
-                const labels = ['Easy', 'Normal', 'Hard'];
-                if (allyDifficultyLabel) {
-                    allyDifficultyLabel.textContent = labels[this.allyDifficulty - 1];
-                }
-            });
-        }
-    }
-
-    setupSettingsSliders() {
-        const sliders = [
-            { id: 'masterVolume', labelId: 'masterVolumeLabel' },
-            { id: 'sfxVolume', labelId: 'sfxVolumeLabel' },
-            { id: 'cameraSmoothing', labelId: 'cameraSmoothingLabel' }
-        ];
-        
-        for (const slider of sliders) {
-            const element = document.getElementById(slider.id);
-            const label = document.getElementById(slider.labelId);
-            
-            if (element && label) {
-                element.addEventListener('input', (e) => {
-                    label.textContent = `${e.target.value}%`;
-                });
+        this.populateHeroGrid();
+        this.populateSpellGrid();
+        this.loadPlayerName();
+    },
+    
+    /**
+     * Cache screen elements
+     */
+    cacheScreens() {
+        this.screens = {
+            start: document.getElementById('startScreen'),
+            pregame: document.getElementById('pregameScreen'),
+            settings: document.getElementById('settingsScreen'),
+            pause: document.getElementById('pauseScreen'),
+            gameover: document.getElementById('gameOverScreen'),
+        };
+    },
+    
+    /**
+     * Load player name from localStorage
+     */
+    loadPlayerName() {
+        try {
+            const saved = localStorage.getItem('mobaPlayerName');
+            if (saved) {
+                this.playerName = saved;
             }
+        } catch (e) {
+            console.warn('Failed to load player name');
         }
-    }
-
-    getSkillByKey(heroData, key) {
-        if (!heroData.skills || !Array.isArray(heroData.skills)) return { name: 'N/A' };
-        return heroData.skills.find(s => s.key === key) || { name: 'N/A' };
-    }
-
-    populateHeroSelection() {
-        const heroSelection = document.getElementById('heroSelection');
-        if (!heroSelection) return;
-
-        const allHeroes = (typeof HEROES !== 'undefined' && HEROES) ? HEROES : {};
         
-        heroSelection.innerHTML = '';
+        // Update input if exists
+        const nameInput = document.getElementById('playerNameInput');
+        if (nameInput) {
+            nameInput.value = this.playerName;
+        }
+    },
+    
+    /**
+     * Save player name
+     */
+    savePlayerName(name) {
+        this.playerName = name || CONFIG.game.defaultPlayerName;
+        try {
+            localStorage.setItem('mobaPlayerName', this.playerName);
+        } catch (e) {
+            console.warn('Failed to save player name');
+        }
+    },
+    
+    /**
+     * Get random AI name
+     */
+    getRandomAIName(usedNames = []) {
+        const available = CONFIG.aiNames.filter(n => !usedNames.includes(n));
+        if (available.length === 0) {
+            return 'Bot' + Math.floor(Math.random() * 1000);
+        }
+        return Utils.randomItem(available);
+    },
+    
+	/**
+	 * Setup event listeners - UPDATED
+	 */
+	setupEventListeners() {
+		// Start screen
+		document.getElementById('btnPlay')?.addEventListener('click', () => {
+			const nameInput = document.getElementById('playerNameInput');
+			if (nameInput) {
+				this.savePlayerName(nameInput.value.trim());
+			}
+			this.showScreen('pregame');
+			
+			if (typeof AudioManager !== 'undefined') {
+				AudioManager.resume();
+			}
+		});
+		
+		document.getElementById('btnSettings')?.addEventListener('click', () => {
+			this.previousScreen = this.currentScreen;
+			this.showScreen('settings');
+		});
+		
+		document.getElementById('btnQuit')?.addEventListener('click', () => {
+			alert('Cảm ơn bạn đã chơi MOBA Arena!');
+		});
+		
+		document.getElementById('playerNameInput')?.addEventListener('change', (e) => {
+			this.savePlayerName(e.target.value.trim());
+		});
+		
+		// Pre-game screen
+		document.getElementById('btnStartGame')?.addEventListener('click', () => {
+			this.startGame();
+		});
+		
+		document.getElementById('btnBackToMenu')?.addEventListener('click', () => {
+			this.showScreen('start');
+		});
+		
+		document.getElementById('allyDifficulty')?.addEventListener('change', (e) => {
+			this.allyDifficulty = e.target.value;
+		});
+		
+		document.getElementById('enemyDifficulty')?.addEventListener('change', (e) => {
+			this.enemyDifficulty = e.target.value;
+		});
+		
+		// Settings screen - UPDATED
+		document.getElementById('btnCloseSettings')?.addEventListener('click', () => {
+			this.closeSettings();
+		});
+		
+		// Pause screen
+		document.getElementById('btnResume')?.addEventListener('click', () => {
+			this.resumeFromPause();
+		});
+		
+		// Pause settings - UPDATED
+		document.getElementById('btnPauseSettings')?.addEventListener('click', () => {
+			this.previousScreen = 'pause';
+			this.showScreen('settings');
+		});
+		
+		document.getElementById('btnExitGame')?.addEventListener('click', () => {
+			Game.stop();
+			this.hideScreen('pause');
+			this.showScreen('start');
+			UI.hideIngameUI();
+			
+			if (typeof AudioManager !== 'undefined') {
+				AudioManager.stopMusic();
+			}
+		});
+		
+		// Game over screen
+		document.getElementById('btnPlayAgain')?.addEventListener('click', () => {
+			this.hideScreen('gameover');
+			this.showScreen('pregame');
+		});
+		
+		document.getElementById('btnBackToMenuEnd')?.addEventListener('click', () => {
+			this.hideScreen('gameover');
+			this.showScreen('start');
+		});
+		
+		// === NEW: ESC key handler ===
+		document.addEventListener('keydown', (e) => {
+			if (e.key === 'Escape') {
+				this.handleEscapeKey();
+			}
+		});
+	},
+	
+	/**
+	 * Handle ESC key press - NEW
+	 */
+	handleEscapeKey() {
+		// Nếu đang ở settings
+		if (this.currentScreen === 'settings') {
+			this.closeSettings();
+			return;
+		}
+		
+		// Nếu đang ở pause
+		if (this.currentScreen === 'pause') {
+			this.resumeFromPause();
+			return;
+		}
+		
+		// Nếu game đang chạy và không pause
+		if (Game.isRunning && !Game.isPaused && !Game.isGameOver) {
+			Game.pause();
+		}
+	},
+	
+	/**
+	 * Close settings - FIXED
+	 */
+	closeSettings() {
+		this.hideScreen('settings');
+		
+		if (this.previousScreen === 'pause') {
+			this.showScreen('pause');
+			// KHÔNG hiện UI vì vẫn đang pause
+		} else if (Game.isRunning && !Game.isPaused) {
+			UI.showIngameUI();
+			MinionManager.showCountdownForResume();
+		} else if (!Game.isRunning) {
+			this.showScreen('start');
+		}
+		this.previousScreen = null;
+	},
+
+	/**
+	 * Resume from pause - UPDATED
+	 */
+	resumeFromPause() {
+		Game.resume();
+		this.hideScreen('pause');
+		UI.showIngameUI();
+		MinionManager.showCountdownForResume(); // Hiện lại countdown nếu cần
+	},
+
+		
+    /**
+     * Populate hero selection grid
+     */
+    populateHeroGrid() {
+        const grid = document.getElementById('heroGrid');
+        if (!grid) return;
         
-        for (const heroData of Object.values(allHeroes)) {
+        grid.innerHTML = '';
+        
+        const heroes = HeroRegistry.getAll();
+        
+        for (const hero of heroes) {
             const card = document.createElement('div');
             card.className = 'hero-card';
-            card.dataset.heroId = heroData.id;
+            card.dataset.heroId = hero.id;
             
-            const portrait = document.createElement('div');
-            portrait.className = 'hero-portrait';
-            portrait.textContent = heroData.emoji || '❓';
+            const roleClass = `role-${hero.role}`;
             
-            const name = document.createElement('div');
-            name.className = 'hero-name';
-            name.textContent = heroData.name || 'Unknown';
+            card.innerHTML = `
+                <div class="hero-icon ${roleClass}">${hero.icon}</div>
+                <div class="hero-name">${hero.name}</div>
+            `;
             
-            const role = document.createElement('div');
-            role.className = 'hero-role';
-            role.textContent = heroData.role || 'Unknown';
+            card.addEventListener('click', () => {
+                this.selectHero(hero.id);
+                
+                if (typeof AudioManager !== 'undefined') {
+                    AudioManager.play('click');
+                }
+            });
             
-            const qSkill = this.getSkillByKey(heroData, 'q');
-            const eSkill = this.getSkillByKey(heroData, 'e');
-            const rSkill = this.getSkillByKey(heroData, 'r');
-            const tSkill = this.getSkillByKey(heroData, 't');
-            
-            const abilities = document.createElement('div');
-            abilities.className = 'hero-abilities';
-            abilities.textContent = `Q: ${qSkill.name}\nE: ${eSkill.name}\nR: ${rSkill.name}\nT: ${tSkill.name}`;
-            
-            card.appendChild(portrait);
-            card.appendChild(name);
-            card.appendChild(role);
-            card.appendChild(abilities);
-            
-            card.addEventListener('click', () => this.selectHero(heroData.id));
-            
-            heroSelection.appendChild(card);
+            grid.appendChild(card);
         }
         
-        const summonerCards = document.querySelectorAll('.summoner-card');
-        summonerCards.forEach(card => {
-            card.addEventListener('click', () => {
-                summonerCards.forEach(c => c.classList.remove('selected'));
-                card.classList.add('selected');
-                this.selectedSummonerSpell = card.dataset.spell;
-            });
-        });
-        
-        document.querySelector('.summoner-card[data-spell="heal"]')?.classList.add('selected');
-    }
-
+        if (heroes.length > 0) {
+            this.selectHero(heroes[0].id);
+        }
+    },
+    
+    /**
+     * Select hero
+     */
     selectHero(heroId) {
         this.selectedHero = heroId;
-
+        
         const cards = document.querySelectorAll('.hero-card');
         cards.forEach(card => {
-            if (card.dataset.heroId === heroId) {
-                card.classList.add('selected');
-            } else {
-                card.classList.remove('selected');
-            }
+            card.classList.toggle('selected', card.dataset.heroId === heroId);
         });
-    }
-
-    openSettings() {
-        if (this.currentScreen !== 'settingsScreen') {
-            this.screenBeforeSettings = this.currentScreen;
+        
+        const hero = HeroRegistry.get(heroId);
+        if (hero) {
+            const portrait = document.getElementById('selectedHeroPortrait');
+            const name = document.getElementById('heroName');
+            const role = document.getElementById('heroRole');
+            const desc = document.getElementById('heroDescription');
+            
+            if (portrait) {
+                portrait.textContent = hero.icon;
+                portrait.className = `hero-portrait role-${hero.role}`;
+            }
+            if (name) name.textContent = hero.name;
+            if (role) {
+                const roleNames = {
+                    marksman: 'Xạ Thủ',
+                    fighter: 'Đấu Sĩ',
+                    mage: 'Pháp Sư',
+                    tank: 'Trợ Thủ',
+                    assassin: 'Sát Thủ',
+                };
+                role.textContent = roleNames[hero.role] || hero.role;
+            }
+            if (desc) desc.textContent = hero.description;
         }
-        this.showScreen('settingsScreen');
-    }
-
-    closeSettings() {
-        const returnScreen = this.screenBeforeSettings || 'startScreen';
-        this.showScreen(returnScreen);
-    }
-
-    toggleSettings() {
-        if (this.currentScreen === 'settingsScreen') {
-            this.closeSettings();
-        } else {
-            this.openSettings();
+    },
+    
+    /**
+     * Populate spell selection grid
+     */
+    populateSpellGrid() {
+        const grid = document.getElementById('spellGrid');
+        if (!grid) return;
+        
+        grid.innerHTML = '';
+        
+        const spells = Object.entries(CONFIG.spells);
+        
+        for (const [spellId, spell] of spells) {
+            const card = document.createElement('div');
+            card.className = 'spell-card';
+            card.dataset.spellId = spellId;
+            
+            if (spellId === this.selectedSpell) {
+                card.classList.add('selected');
+            }
+            
+            card.innerHTML = `
+                <div class="spell-icon">${spell.icon}</div>
+                <div class="spell-name">${spell.name}</div>
+            `;
+            
+            card.addEventListener('click', () => {
+                this.selectSpell(spellId);
+                
+                if (typeof AudioManager !== 'undefined') {
+                    AudioManager.play('click');
+                }
+            });
+            
+            grid.appendChild(card);
         }
-    }
-
+    },
+    
+    /**
+     * Select spell
+     */
+    selectSpell(spellId) {
+        this.selectedSpell = spellId;
+        
+        const cards = document.querySelectorAll('.spell-card');
+        cards.forEach(card => {
+            card.classList.toggle('selected', card.dataset.spellId === spellId);
+        });
+    },
+    
+    /**
+     * Show screen
+     */
     showScreen(screenId) {
-        const screens = document.querySelectorAll('.screen');
-        screens.forEach(screen => screen.classList.remove('active'));
-
-        const targetScreen = document.getElementById(screenId);
-        if (targetScreen) {
-            targetScreen.classList.add('active');
+        for (const [id, screen] of Object.entries(this.screens)) {
+            if (screen) {
+                screen.classList.remove('active');
+            }
+        }
+        
+        if (this.screens[screenId]) {
+            this.screens[screenId].classList.add('active');
             this.currentScreen = screenId;
         }
-    }
-
-    startGame() {
+    },
+    
+    /**
+     * Hide screen
+     */
+    hideScreen(screenId) {
+        if (this.screens[screenId]) {
+            this.screens[screenId].classList.remove('active');
+        }
+    },
+    
+    /**
+     * Hide all screens
+     */
+    hideAllScreens() {
+        for (const screen of Object.values(this.screens)) {
+            if (screen) {
+                screen.classList.remove('active');
+            }
+        }
+        this.currentScreen = null;
+    },
+    
+	/**
+	 * Show pause screen - UPDATED
+	 */
+	showPause() {
+		UI.hideIngameUI();
+		MinionManager.hideCountdownForPause(); // Ẩn countdown lính
+		this.showScreen('pause');
+	},
+    
+    /**
+     * Show game over screen
+     */
+    showGameOver(won) {
+        UI.showGameOverStats(won);
+        this.showScreen('gameover');
+        
+        if (typeof AudioManager !== 'undefined') {
+            AudioManager.play(won ? 'victory' : 'defeat');
+        }
+    },
+    
+    /**
+     * Start game with current selections
+     */
+    async startGame() {
         if (!this.selectedHero) {
-            alert('Please select a hero!');
+            alert('Vui lòng chọn một tướng!');
             return;
         }
-        
-        this.showScreen('gameScreen');
-        
-        if (window.game) {
-            window.game.initialize({
-                playerHeroId: this.selectedHero,
-                summonerSpell: this.selectedSummonerSpell,
-                enemyDifficulty: this.enemyDifficulty,
-                allyDifficulty: this.allyDifficulty
-            });
-            window.game.start();
-        }
-    }
 
-    pauseGame() {
-        if (window.game) {
-            window.game.pause();
-            this.showScreen('pauseScreen');
-        }
-    }
+        this.hideAllScreens();
 
-    resumeGame() {
-        if (window.game) {
-            window.game.resume();
-            this.showScreen('gameScreen');
-        }
-    }
+        // Generate AI names
+        const usedNames = [this.playerName];
+        const aiNames = {
+            allies: [],
+            enemies: [],
+        };
 
-    applySettings() {
-        const cameraSmoothing = document.getElementById('cameraSmoothing');
-        
-        if (cameraSmoothing && window.game && window.game.camera) {
-            window.game.camera.setSmoothness(parseInt(cameraSmoothing.value) / 100);
+        for (let i = 0; i < 2; i++) {
+            const name = this.getRandomAIName(usedNames);
+            usedNames.push(name);
+            aiNames.allies.push(name);
         }
-        
-        alert('Settings applied!');
-    }
 
-    resetSettings() {
-        document.getElementById('masterVolume').value = 70;
-        document.getElementById('sfxVolume').value = 70;
-        document.getElementById('cameraSmoothing').value = 80;
-        document.getElementById('muteAll').checked = false;
-        document.getElementById('autoAttack').checked = true;
-        document.getElementById('showGrid').checked = false;
-        
-        document.getElementById('masterVolumeLabel').textContent = '70%';
-        document.getElementById('sfxVolumeLabel').textContent = '70%';
-        document.getElementById('cameraSmoothingLabel').textContent = '80%';
-    }
+        for (let i = 0; i < 3; i++) {
+            const name = this.getRandomAIName(usedNames);
+            usedNames.push(name);
+            aiNames.enemies.push(name);
+        }
 
-    showGameOver(winner, matchStats) {
-        const gameOverScreen = document.getElementById('gameOverScreen');
-        const gameResult = document.getElementById('gameResult');
-        const statsTable = document.getElementById('statsTable');
-        const matchInfo = document.getElementById('matchInfo');
-        
-        if (!gameOverScreen || !gameResult) return;
-        
-        const playerTeam = window.game.gameState.playerHero.team;
-        const isVictory = winner === playerTeam;
-        
-        gameResult.textContent = isVictory ? 'VICTORY!' : 'DEFEAT';
-        gameResult.className = isVictory ? 'victory' : 'defeat';
-        
-        let tableHTML = '<div class="stats-table-row">';
-        tableHTML += '<span>Hero</span><span>K</span><span>D</span><span>A</span><span>Gold</span><span>Level</span>';
-        tableHTML += '</div>';
-        
-        for (const hero of matchStats.heroes) {
-            const teamClass = hero.team === playerTeam ? 'ally' : 'enemy';
-            tableHTML += `<div class="stats-table-row ${teamClass}">`;
-            tableHTML += `<span>${hero.name}</span>`;
-            tableHTML += `<span>${hero.kills}</span>`;
-            tableHTML += `<span>${hero.deaths}</span>`;
-            tableHTML += `<span>${hero.assists}</span>`;
-            tableHTML += `<span>${Math.floor(hero.gold)}</span>`;
-            tableHTML += `<span>${hero.level}</span>`;
-            tableHTML += '</div>';
+        // Initialize game
+        await Game.init({
+            playerHero: this.selectedHero,
+            playerSpell: this.selectedSpell,
+            playerName: this.playerName,
+            allyDifficulty: this.allyDifficulty,
+            enemyDifficulty: this.enemyDifficulty,
+            aiNames: aiNames,
+        });
+
+        UI.showIngameUI();
+
+        // Start music
+        if (typeof AudioManager !== 'undefined') {
+            AudioManager.playMusic();
         }
+
+        Game.start();
+    },
+    
+    /**
+     * Get available heroes for AI
+     */
+    getAvailableHeroes(excludeIds = []) {
+        const allHeroes = HeroRegistry.getAll();
+        return allHeroes.filter(h => !excludeIds.includes(h.id));
+    },
+    
+    /**
+     * Reset to initial state
+     */
+    reset() {
+        this.selectedHero = null;
+        this.selectedSpell = 'flash';
+        this.allyDifficulty = 'normal';
+        this.enemyDifficulty = 'normal';
+        this.previousScreen = null;
         
-        if (statsTable) {
-            statsTable.innerHTML = tableHTML;
-        }
+        const allySelect = document.getElementById('allyDifficulty');
+        const enemySelect = document.getElementById('enemyDifficulty');
         
-        if (matchInfo) {
-            matchInfo.innerHTML = `
-                <div>Duration: ${formatTime(matchStats.duration)}</div>
-                <div>Your Team Nexus: ${Math.floor(matchStats.allyNexusHp)} HP</div>
-                <div>Enemy Team Nexus: ${Math.floor(matchStats.enemyNexusHp)} HP</div>
-            `;
-        }
+        if (allySelect) allySelect.value = 'normal';
+        if (enemySelect) enemySelect.value = 'normal';
         
-        this.showScreen('gameOverScreen');
-    }
+        const cards = document.querySelectorAll('.hero-card');
+        cards.forEach(card => card.classList.remove('selected'));
+        
+        const spellCards = document.querySelectorAll('.spell-card');
+        spellCards.forEach(card => {
+            card.classList.toggle('selected', card.dataset.spellId === 'flash');
+        });
+        
+        this.showScreen('start');
+    },
+};
+
+// Export
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = Screens;
 }

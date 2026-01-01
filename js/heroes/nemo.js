@@ -1,89 +1,263 @@
-const Nemo = {
+/**
+ * ========================================
+ * HERO: Nemo - Trợ Thủ (Tank/Support)
+ * ========================================
+ * Tank với khả năng bảo vệ đồng đội và khống chế
+ */
+
+const HeroNemo = {
     id: 'nemo',
     name: 'Nemo',
-    role: 'Support',
-    emoji: '💚',
-    description: 'Healer and support with buffs and shields',
+    role: 'tank',
+    attackType: 'melee',
+    difficulty: 1,
+    icon: '🛡️',
+    color: '#3b82f6',
+    
+    description: 'Trợ thủ bền bỉ với khả năng bảo vệ đồng đội và khống chế kẻ địch hiệu quả.',
+
+    // === BASE STATS ===
     baseStats: {
-        hp: 520,
-        mana: 350,
-        damage: 45,
-        armor: 30,
+        health: 750,
+        mana: 320,
+        healthRegen: 10,
+        manaRegen: 4,
+        attackDamage: 50,
+        abilityPower: 30,
+        armor: 40,
         magicResist: 35,
-        abilityPower: 60,
-        attackSpeed: 0.65,
-        movementSpeed: 335,
-        attackRange: 300,
+        attackSpeed: 0.6,
+        attackRange: 150,
+        moveSpeed: 340,
         critChance: 0,
-        critDamage: 1.5,
-        lifeSteal: 0,
-        spellVamp: 0.05,
-        hpRegen: 0.025,
-        manaRegen: 0.035
+        critDamage: 150,
     },
-    growthStats: {
-        hp: 80,
-        mana: 45,
-        damage: 2,
-        armor: 3.5,
-        magicResist: 2.5,
-        abilityPower: 5
+
+    // === STAT GROWTH PER LEVEL ===
+    statGrowth: {
+        health: 110,
+        mana: 35,
+        healthRegen: 1.0,
+        manaRegen: 0.3,
+        attackDamage: 4,
+        abilityPower: 2,
+        armor: 5,
+        magicResist: 3,
+        attackSpeed: 0.01,
+        critChance: 0,
     },
-    normalAttack: {
-        damage: 45,
-        range: 300,
-        speed: 0.65,
-        effects: ['ranged']
+
+    // === PASSIVE ===
+    passive: {
+        name: 'Ý Chí Thép',
+        description: 'Khi máu dưới 30%, nhận 30% giảm sát thương trong 5 giây. Hồi chiêu 60 giây.',
+        icon: '💪',
+        hpThreshold: 0.3,
+        damageReduction: 0.3,
+        duration: 5000,
+        cooldown: 60000,
     },
-    skills: [
-        {
-            key: 'q',
-            name: 'Healing Touch',
-            manaCost: 60,
-            cooldown: 8,
-            healing: 120,
-            range: 500,
-            healRadius: 100,
-            directionDependent: false,
-            description: 'Heal an ally hero'
+
+    // === ABILITIES ===
+    abilities: {
+        // Q - Húc Mạnh
+        q: {
+            name: 'Húc Mạnh',
+            description: 'Lao về phía trước và húc kẻ địch đầu tiên, gây sát thương và làm choáng.',
+            icon: '🦬',
+            type: 'dash',
+            damageType: 'physical',
+            baseDamage: [60, 100, 140, 180, 220],
+            adRatio: 0.5,
+            apRatio: 0,
+            bonusHealthRatio: 0.05,
+            manaCost: [50, 55, 60, 65, 70],
+            cooldown: [10000, 9500, 9000, 8500, 8000],
+            dashDistance: 400,
+            stunDuration: 1000,
+            maxLevel: 5,
+
+            execute(hero, targetX, targetY, level) {
+                const damage = this.baseDamage[level - 1] 
+                    + (hero.stats.attackDamage * this.adRatio)
+                    + (hero.stats.maxHealth * this.bonusHealthRatio);
+                const angle = Utils.angleBetweenPoints(hero.x, hero.y, targetX, targetY);
+                
+                return {
+                    type: 'dash_collision',
+                    dashX: hero.x + Math.cos(angle) * this.dashDistance,
+                    dashY: hero.y + Math.sin(angle) * this.dashDistance,
+                    damage: damage,
+                    damageType: this.damageType,
+                    owner: hero,
+                    color: '#3b82f6',
+                    onHit: {
+                        type: 'stun',
+                        duration: this.stunDuration,
+                    },
+                    stopOnHit: true,
+                };
+            },
         },
-        {
-            key: 'e',
-            name: 'Protective Shield',
-            manaCost: 55,
-            cooldown: 12,
-            shieldAmount: 150,
-            duration: 3,
-            range: 500,
-            shieldRadius: 100,
-            directionDependent: false,
-            description: 'Shield an ally hero'
+
+        // E - Khiên Bảo Hộ
+        e: {
+            name: 'Khiên Bảo Hộ',
+            description: 'Tạo khiên cho bản thân hoặc đồng đội trong tầm, hấp thụ sát thương.',
+            icon: '🔰',
+            type: 'shield',
+            damageType: 'none',
+            baseShield: [80, 130, 180, 230, 280],
+            apRatio: 0.4,
+            bonusHealthRatio: 0.08,
+            manaCost: [60, 65, 70, 75, 80],
+            cooldown: [12000, 11000, 10000, 9000, 8000],
+            range: 600,
+            duration: 4000,
+            maxLevel: 5,
+
+            execute(hero, targetX, targetY, level) {
+                const shieldAmount = this.baseShield[level - 1] 
+                    + (hero.stats.abilityPower * this.apRatio)
+                    + (hero.stats.maxHealth * this.bonusHealthRatio);
+                
+                return {
+                    type: 'targeted_shield',
+                    targetX: targetX,
+                    targetY: targetY,
+                    range: this.range,
+                    shieldAmount: shieldAmount,
+                    duration: this.duration,
+                    owner: hero,
+                    color: '#60a5fa',
+                    canTargetSelf: true,
+                    canTargetAlly: true,
+                };
+            },
         },
-        {
-            key: 'r',
-            name: 'Inspire',
-            manaCost: 50,
-            cooldown: 15,
-            duration: 4,
-            attackSpeedBoost: 0.5,
-            movementSpeedBoost: 0.3,
-            range: 500,
-            directionDependent: false,
-            description: 'Buff ally attack and movement speed'
+
+        // R - Khiêu Khích
+        r: {
+            name: 'Khiêu Khích',
+            description: 'Khiêu khích tất cả kẻ địch xung quanh, buộc họ tấn công bạn trong 2 giây.',
+            icon: '😤',
+            type: 'area',
+            damageType: 'none',
+            manaCost: [50, 55, 60, 65, 70],
+            cooldown: [14000, 13000, 12000, 11000, 10000],
+            radius: 350,
+            tauntDuration: 2000,
+            maxLevel: 5,
+
+            execute(hero, targetX, targetY, level) {
+                return {
+                    type: 'instant_area',
+                    x: hero.x,
+                    y: hero.y,
+                    radius: this.radius,
+                    damage: 0,
+                    damageType: this.damageType,
+                    owner: hero,
+                    color: '#f59e0b',
+                    effects: [{
+                        type: 'taunt',
+                        duration: this.tauntDuration,
+                        source: hero,
+                    }],
+                };
+            },
         },
-        {
-            key: 't',
-            name: 'Divine Intervention',
-            manaCost: 100,
-            cooldown: 85,
-            healing: 250,
-            shieldAmount: 200,
-            radius: 600,
-            duration: 5,
-            directionDependent: false,
-            description: 'Team-wide heal and shield'
-        }
-    ]
+
+        // T - Ultimate: Pháo Đài Bất Diệt
+        t: {
+            name: 'Pháo Đài Bất Diệt',
+            description: 'Tạo một vùng pháo đài trong 5 giây. Đồng đội trong vùng nhận giảm 30% sát thương và hồi máu mỗi giây.',
+            icon: '🏰',
+            type: 'zone',
+            damageType: 'none',
+            baseHeal: [20, 35, 50],
+            apRatio: 0.15,
+            damageReduction: 0.3,
+            manaCost: [100, 120, 140],
+            cooldown: [100000, 90000, 80000],
+            radius: 400,
+            duration: 5000,
+            tickRate: 1000,
+            maxLevel: 3,
+
+            execute(hero, targetX, targetY, level) {
+                const healPerTick = this.baseHeal[level - 1] + (hero.stats.abilityPower * this.apRatio);
+                
+                return {
+                    type: 'zone',
+                    x: hero.x,
+                    y: hero.y,
+                    radius: this.radius,
+                    duration: this.duration,
+                    tickRate: this.tickRate,
+                    owner: hero,
+                    color: '#22c55e',
+                    allyEffects: {
+                        damageReduction: this.damageReduction,
+                        healPerTick: healPerTick,
+                    },
+                };
+            },
+        },
+    },
+
+    // === BASIC ATTACK ===
+    basicAttack: {
+        type: 'melee',
+
+        execute(hero, target) {
+            const damage = hero.stats.attackDamage;
+            
+            return {
+                type: 'melee_attack',
+                target: target,
+                damage: damage,
+                damageType: 'physical',
+                owner: hero,
+                color: '#3b82f6',
+            };
+        },
+    },
+
+    // === AI HINTS ===
+    aiHints: {
+        preferredLane: 'bot',
+        playstyle: 'protective',
+        powerSpike: 'mid',
+        teamfightRole: 'frontline_peeler',
+        
+        priorities: {
+            farming: 0.4,
+            trading: 0.5,
+            objectives: 0.8,
+            teamfighting: 0.9,
+            protecting: 0.95,
+        },
+        
+        combos: [
+            { sequence: ['q'], condition: 'engage' },
+            { sequence: ['e'], condition: 'protect' },
+            { sequence: ['q', 'r'], condition: 'peel' },
+            { sequence: ['t', 'r', 'q'], condition: 'teamfight' },
+        ],
+        
+        threatLevel: {
+            assassin: 'low',
+            fighter: 'low',
+            mage: 'low',
+            marksman: 'low',
+            tank: 'low',
+            support: 'low',
+        },
+    },
 };
 
-window.Nemo = Nemo;
+// Register hero
+if (typeof HeroRegistry !== 'undefined') {
+    HeroRegistry.register(HeroNemo);
+}

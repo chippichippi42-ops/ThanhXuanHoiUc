@@ -1,457 +1,507 @@
-class Game {
-    constructor() {
+/**
+ * ========================================
+ * MOBA Arena - Main Game Controller
+ * ========================================
+ * Game loop, initialization, và overall control
+ */
+
+const Game = {
+    // Canvas and context
+    canvas: null,
+    ctx: null,
+    
+    // Game state
+    isRunning: false,
+    isPaused: false,
+    isGameOver: false,
+    
+    // Timing
+    lastTime: 0,
+    deltaTime: 0,
+    gameTime: 0,
+    fps: 0,
+    frameCount: 0,
+    fpsTime: 0,
+    
+    // Game settings
+    settings: {
+        playerHero: null,
+        playerSpell: null,
+        allyDifficulty: 'normal',
+        enemyDifficulty: 'normal',
+    },
+    
+    // Entity lists (for easy access)
+    entities: [],
+    
+    /**
+     * Initialize game
+     */
+    async init(settings) {
+        console.log('Initializing MOBA Arena...');
+
+        // Store settings
+        this.settings = { ...this.settings, ...settings };
+
+        // Get canvas
         this.canvas = document.getElementById('gameCanvas');
+        if (!this.canvas) {
+            console.error('Canvas not found!');
+            return;
+        }
+
         this.ctx = this.canvas.getContext('2d');
-        this.minimapCanvas = document.getElementById('minimap');
-        
-        this.resizeCanvas();
-        window.addEventListener('resize', () => this.resizeCanvas());
-        
-        this.gameState = {
-            map: null,
-            heroes: [],
-            minions: [],
-            creatures: [],
-            towers: [],
-            projectiles: [],
-            effects: [],
-            playerHero: null,
-            elapsedTime: 0,
-            gameStartTime: 0,
-            isPaused: false,
-            isGameOver: false,
-            winner: null
-        };
-        
-        this.camera = null;
-        this.minimap = null;
-        this.inputManager = null;
-        this.uiManager = null;
-        this.combatSystem = null;
-        
-        this.lastFrameTime = 0;
-        this.minionSpawnTimer = 0;
-        this.goldPassiveTimer = 0;
-        
-        this.aiControllers = [];
-    }
 
-    resizeCanvas() {
-        this.canvas.width = window.innerWidth;
-        this.canvas.height = window.innerHeight;
-        
-        if (this.camera) {
-            this.camera.width = this.canvas.width;
-            this.camera.height = this.canvas.height;
-        }
-    }
+        // Setup canvas
+        this.setupCanvas();
 
-    initialize(config) {
-        this.gameState.map = new GameMap(CONFIG.MAP_SIZE);
-        this.camera = new Camera(this.canvas.width, this.canvas.height, CONFIG.MAP_SIZE, CONFIG.MAP_SIZE);
-        this.camera.setSmoothness(0.1);
-        
-        this.minimap = new Minimap(this.minimapCanvas, CONFIG.MAP_SIZE);
-        this.inputManager = new InputManager();
-        this.uiManager = new UIManager(this.gameState);
-        this.combatSystem = new CombatSystem(this.gameState);
-        this.gameState.combatSystem = this.combatSystem;
-        this.gameState.inputManager = this.inputManager;
-        
-        this.gameState.heroes = [];
-        this.gameState.minions = [];
-        this.gameState.creatures = [];
-        this.gameState.towers = [];
-        this.gameState.projectiles = [];
-        this.gameState.effects = [];
-        this.aiControllers = [];
-        
-        this.createHeroes(config);
-        this.createTowers();
-        this.createJungleCreatures();
-        
-        this.gameState.gameStartTime = Date.now();
-        this.gameState.elapsedTime = 0;
-        this.gameState.isPaused = false;
-        this.gameState.isGameOver = false;
-        this.gameState.winner = null;
-        
-        this.minionSpawnTimer = 0;
-        this.goldPassiveTimer = 0;
-    }
+        // Initialize systems
+        await this.initializeSystems();
 
-    createHeroes(config) {
-        const availableHeroes = Object.keys(HEROES);
-        const playerHeroId = config.playerHeroId;
+        // Create game entities
+        this.createGameEntities();
+
+        // Reset state
+        this.isRunning = false;
+        this.isPaused = false;
+        this.isGameOver = false;
+        this.gameTime = 0;
+
+        console.log('Game initialized successfully!');
+    },
+    
+    /**
+     * Setup canvas for HiDPI
+     */
+    setupCanvas() {
+        const dpr = window.devicePixelRatio || 1;
+        const rect = this.canvas.getBoundingClientRect();
         
-        const blueSpawn = this.gameState.map.spawnPoints[CONFIG.TEAM_BLUE];
-        const redSpawn = this.gameState.map.spawnPoints[CONFIG.TEAM_RED];
+        // Set actual size in memory
+        this.canvas.width = rect.width * dpr;
+        this.canvas.height = rect.height * dpr;
         
-        const playerHero = new Hero(
-            blueSpawn.x,
-            blueSpawn.y,
-            CONFIG.TEAM_BLUE,
-            playerHeroId,
-            true
+        // Scale context to match DPR
+        this.ctx.scale(dpr, dpr);
+        
+        // Set display size
+        this.canvas.style.width = rect.width + 'px';
+        this.canvas.style.height = rect.height + 'px';
+        
+        // Handle resize
+        window.addEventListener('resize', Utils.debounce(() => {
+            this.handleResize();
+        }, 200));
+    },
+    
+    /**
+     * Handle window resize
+     */
+    handleResize() {
+        const dpr = window.devicePixelRatio || 1;
+        const rect = this.canvas.getBoundingClientRect();
+        
+        this.canvas.width = rect.width * dpr;
+        this.canvas.height = rect.height * dpr;
+        this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+        this.ctx.scale(dpr, dpr);
+        
+        Camera.resize(rect.width, rect.height);
+    },
+    
+    /**
+     * Initialize all game systems
+     */
+    async initializeSystems() {
+        // Initialize map first
+        GameMap.init();
+
+        // Initialize camera
+        Camera.init(this.canvas);
+
+        // Initialize managers
+        HeroManager.init();
+        TowerManager.init();
+        MinionManager.init();
+        CreatureManager.init();
+        ProjectileManager.init();
+        EffectManager.init();
+        AIManager.init();
+        await AIManager.initializeAI();
+
+        // Initialize input
+        Input.init();
+
+        // Initialize UI
+        UI.init();
+
+        // Initialize minimap
+        Minimap.init();
+
+        // Initialize screens
+        Screens.init();
+    },
+    
+    /**
+     * Create game entities
+     */
+    createGameEntities() {
+        // Create player hero
+        const player = HeroManager.createHero(
+            this.settings.playerHero,
+            CONFIG.teams.BLUE,
+            true,
+            this.settings.playerName
         );
-        playerHero.setSummonerSpell(config.summonerSpell);
-        this.gameState.heroes.push(playerHero);
-        this.gameState.playerHero = playerHero;
-        this.camera.follow(playerHero);
+        player.spell = this.settings.playerSpell;
         
-        const usedHeroes = new Set([playerHeroId]);
+        Camera.lock(player);
         
+        const usedHeroes = [this.settings.playerHero];
+        
+        // Create ally AI heroes
         for (let i = 0; i < 2; i++) {
-            const availableForAlly = availableHeroes.filter(h => !usedHeroes.has(h));
-            const heroId = randomChoice(availableForAlly);
-            usedHeroes.add(heroId);
-            
-            const offsetX = (i - 0.5) * 100;
-            const offsetY = (i - 0.5) * 100;
-            
-            const ally = new Hero(
-                blueSpawn.x + offsetX,
-                blueSpawn.y + offsetY,
-                CONFIG.TEAM_BLUE,
-                heroId,
-                false
-            );
-            ally.setSummonerSpell(randomChoice(['heal', 'flash', 'haste']));
-            this.gameState.heroes.push(ally);
-            
-            const allyAI = {
-                reactive: new ReactiveAI(ally, this.gameState),
-                tactical: new TacticalAI(ally, this.gameState, config.allyDifficulty)
-            };
-            this.aiControllers.push({ hero: ally, ai: allyAI });
+            const available = Screens.getAvailableHeroes(usedHeroes);
+            if (available.length > 0) {
+                const heroData = Utils.randomItem(available);
+                const aiName = this.settings.aiNames?.allies?.[i] || `Ally${i + 1}`;
+                
+                const hero = HeroManager.createHero(heroData.id, CONFIG.teams.BLUE, false, aiName);
+                hero.spell = Utils.randomItem(Object.keys(CONFIG.spells));
+                usedHeroes.push(heroData.id);
+                
+                AIManager.createController(hero, this.settings.allyDifficulty);
+            }
         }
         
+        // Create enemy AI heroes
+        const enemyUsedHeroes = [];
         for (let i = 0; i < 3; i++) {
-            const availableForEnemy = availableHeroes.filter(h => !usedHeroes.has(h));
-            const heroId = randomChoice(availableForEnemy);
-            usedHeroes.add(heroId);
-            
-            const offsetX = (i - 1) * 100;
-            const offsetY = (i - 1) * 100;
-            
-            const enemy = new Hero(
-                redSpawn.x + offsetX,
-                redSpawn.y + offsetY,
-                CONFIG.TEAM_RED,
-                heroId,
-                false
-            );
-            enemy.setSummonerSpell(randomChoice(['heal', 'flash', 'haste']));
-            this.gameState.heroes.push(enemy);
-            
-            const enemyAI = {
-                reactive: new ReactiveAI(enemy, this.gameState),
-                tactical: new TacticalAI(enemy, this.gameState, config.enemyDifficulty)
-            };
-            this.aiControllers.push({ hero: enemy, ai: enemyAI });
-        }
-    }
-
-    createTowers() {
-        for (const team of [CONFIG.TEAM_BLUE, CONFIG.TEAM_RED]) {
-            const towerPositions = this.gameState.map.towerPositions[team];
-            
-            const nexus = new Tower(
-                towerPositions.nexus.x,
-                towerPositions.nexus.y,
-                team,
-                'nexus'
-            );
-            this.gameState.towers.push(nexus);
-            
-            for (const lane of ['top', 'mid', 'bot']) {
-                for (const towerPos of towerPositions[lane]) {
-                    const tower = new Tower(
-                        towerPos.x,
-                        towerPos.y,
-                        team,
-                        towerPos.type
-                    );
-                    this.gameState.towers.push(tower);
-                }
+            const available = Screens.getAvailableHeroes(enemyUsedHeroes);
+            if (available.length > 0) {
+                const heroData = Utils.randomItem(available);
+                const aiName = this.settings.aiNames?.enemies?.[i] || `Enemy${i + 1}`;
+                
+                const hero = HeroManager.createHero(heroData.id, CONFIG.teams.RED, false, aiName);
+                hero.spell = Utils.randomItem(Object.keys(CONFIG.spells));
+                enemyUsedHeroes.push(heroData.id);
+                
+                AIManager.createController(hero, this.settings.enemyDifficulty);
             }
         }
-    }
-
-    createJungleCreatures() {
-        for (const team of [CONFIG.TEAM_BLUE, CONFIG.TEAM_RED]) {
-            const spawnPositions = this.gameState.map.getJungleSpawnPositions(team);
-            
-            for (const spawn of spawnPositions) {
-                const creature = new JungleCreature(spawn.x, spawn.y, spawn.type);
-                this.gameState.creatures.push(creature);
-            }
-        }
-    }
-
+    },
+    
+    /**
+     * Start game
+     */
     start() {
-        this.lastFrameTime = performance.now();
-        this.gameLoop(this.lastFrameTime);
-    }
-
-    pause() {
-        this.gameState.isPaused = true;
-    }
-
-    resume() {
-        this.gameState.isPaused = false;
-        this.lastFrameTime = performance.now();
-    }
-
-    gameLoop(timestamp) {
-        requestAnimationFrame((t) => this.gameLoop(t));
+        console.log('Starting game...');
         
-        if (this.gameState.isPaused || this.gameState.isGameOver) {
-            return;
+        this.isRunning = true;
+        this.isPaused = false;
+        this.lastTime = performance.now();
+        
+        // Start game loop
+        this.gameLoop(this.lastTime);
+    },
+    
+    /**
+     * Main game loop
+     */
+    gameLoop(currentTime) {
+        if (!this.isRunning) return;
+        
+        // Calculate delta time
+        this.deltaTime = currentTime - this.lastTime;
+        this.lastTime = currentTime;
+        
+        // Cap delta time to prevent huge jumps
+        this.deltaTime = Math.min(this.deltaTime, 100);
+        
+        // FPS calculation
+        this.frameCount++;
+        this.fpsTime += this.deltaTime;
+        if (this.fpsTime >= 1000) {
+            this.fps = this.frameCount;
+            this.frameCount = 0;
+            this.fpsTime = 0;
+            UI.updateFPS(this.fps);
         }
         
-        const deltaTime = Math.min((timestamp - this.lastFrameTime) / 1000, 0.1);
-        this.lastFrameTime = timestamp;
+        // Update and render if not paused
+        if (!this.isPaused) {
+            this.gameTime += this.deltaTime;
+            this.update(this.deltaTime);
+        }
         
-        this.gameState.elapsedTime = Date.now() - this.gameState.gameStartTime;
-        
-        this.handleInput(deltaTime);
-        this.update(deltaTime);
         this.render();
-    }
-
-    handleInput(deltaTime) {
-        if (!this.gameState.playerHero || this.gameState.playerHero.isDead) return;
         
-        this.inputManager.updateMouseWorld(this.camera);
-        
-        if (this.inputManager.isKeyPressed('escape')) {
-            this.inputManager.clearKey('escape');
-            window.screenManager.pauseGame();
-            return;
-        }
-        
-        if (this.inputManager.isKeyPressed('p')) {
-            this.inputManager.clearKey('p');
-            this.uiManager.showStatsWindow();
-            return;
-        }
-        
-        const movement = this.inputManager.getMovementVector();
-        const speed = this.gameState.playerHero.stats.movementSpeed;
-        
-        this.gameState.playerHero.vx = movement.dx * speed;
-        this.gameState.playerHero.vy = movement.dy * speed;
-        
-        const abilities = ['q', 'e', 'r', 't'];
-        for (const key of abilities) {
-            if (this.inputManager.isKeyPressed(key)) {
-                this.inputManager.clearKey(key);
-                this.gameState.playerHero.castAbility(
-                    key,
-                    this.inputManager.mouseWorldX,
-                    this.inputManager.mouseWorldY,
-                    this.gameState
-                );
-            }
-        }
-        
-        if (this.inputManager.isKeyPressed('f')) {
-            this.inputManager.clearKey('f');
-            this.gameState.playerHero.useSummonerSpell(
-                this.inputManager.mouseWorldX,
-                this.inputManager.mouseWorldY,
-                this.gameState
-            );
-        }
-        
-        if (this.inputManager.isKeyPressed(' ')) {
-            this.inputManager.clearKey(' ');
-            this.gameState.playerHero.autoAttack(
-                this.inputManager.mouseWorldX,
-                this.inputManager.mouseWorldY,
-                this.gameState
-            );
-        }
-    }
-
+        // Continue loop
+        requestAnimationFrame((time) => this.gameLoop(time));
+    },
+    
+    /**
+     * Update game state
+     */
     update(deltaTime) {
-        this.updateTimers(deltaTime);
+        // Get all entities
+        this.updateEntityList();
         
-        for (const hero of this.gameState.heroes) {
-            hero.update(deltaTime, this.gameState);
+        // Update systems in order
+        HeroManager.update(deltaTime, this.entities);
+        TowerManager.update(deltaTime, this.entities);
+        MinionManager.update(deltaTime, this.entities);
+        CreatureManager.update(deltaTime, this.entities);
+        ProjectileManager.update(deltaTime, this.entities);
+        EffectManager.update(deltaTime);
+        AIManager.update(deltaTime, this.entities);
+        
+        // Update camera
+        Camera.update(deltaTime);
+        
+        // Update minimap
+        Minimap.update(deltaTime);
+        
+        // Update UI
+        UI.update(deltaTime);
+        
+        // Update input state
+        Input.update();
+        
+        // Apply mobile joystick input
+        if (Input.isMobile) {
+            Input.applyJoystickToPlayer();
         }
         
-        for (const controller of this.aiControllers) {
-            if (!controller.hero.isDead) {
-                controller.ai.reactive.update(deltaTime);
-                controller.ai.tactical.update(deltaTime);
-            }
-        }
-        
-        for (const minion of this.gameState.minions) {
-            minion.update(deltaTime, this.gameState);
-        }
-        
-        for (const creature of this.gameState.creatures) {
-            creature.update(deltaTime, this.gameState);
-        }
-        
-        for (const tower of this.gameState.towers) {
-            tower.update(deltaTime, this.gameState);
-        }
-        
-        for (const projectile of this.gameState.projectiles) {
-            projectile.update(deltaTime, this.gameState);
-        }
-        
-        for (const effect of this.gameState.effects) {
-            effect.update(deltaTime);
-        }
-        
-        this.gameState.projectiles = this.gameState.projectiles.filter(p => !p.isDead);
-        this.gameState.effects = this.gameState.effects.filter(e => !e.isDead);
-        this.gameState.minions = this.gameState.minions.filter(m => !m.isDead);
-        
-        this.combatSystem.processAutoAttacks(deltaTime);
-        
-        this.camera.update(deltaTime);
-        this.uiManager.update();
-        
-        const winner = this.combatSystem.checkGameEnd();
-        if (winner !== null) {
-            this.endGame(winner);
-        }
-    }
-
-    updateTimers(deltaTime) {
-        this.minionSpawnTimer += deltaTime * 1000;
-        if (this.minionSpawnTimer >= CONFIG.MINION_SPAWN_INTERVAL) {
-            this.minionSpawnTimer = 0;
-            this.spawnMinions();
-        }
-        
-        this.goldPassiveTimer += deltaTime * 1000;
-        if (this.goldPassiveTimer >= CONFIG.GOLD_PASSIVE_INTERVAL) {
-            this.goldPassiveTimer = 0;
-            
-            for (const hero of this.gameState.heroes) {
-                if (!hero.isDead) {
-                    hero.gainGold(CONFIG.GOLD_PASSIVE_AMOUNT);
-                }
-            }
-        }
-    }
-
-    spawnMinions() {
-        for (const team of [CONFIG.TEAM_BLUE, CONFIG.TEAM_RED]) {
-            const lanes = ['top', 'mid', 'bot'];
-            
-            for (const lane of lanes) {
-                const waypoints = this.gameState.map.waypoints[team][lane];
-                const spawnPoint = waypoints[0];
-                
-                const spacing = 50;
-                
-                for (let i = 0; i < 2; i++) {
-                    const minion = new Minion(
-                        spawnPoint.x + (i % 2) * spacing,
-                        spawnPoint.y + Math.floor(i / 2) * spacing,
-                        team,
-                        'melee',
-                        lane
-                    );
-                    minion.setWaypoints(waypoints);
-                    this.gameState.minions.push(minion);
-                }
-                
-                for (let i = 0; i < 2; i++) {
-                    const minion = new Minion(
-                        spawnPoint.x + (i % 2) * spacing + spacing / 2,
-                        spawnPoint.y + Math.floor(i / 2) * spacing + spacing / 2,
-                        team,
-                        'ranged',
-                        lane
-                    );
-                    minion.setWaypoints(waypoints);
-                    this.gameState.minions.push(minion);
-                }
-            }
-        }
-    }
-
+        // Check game over conditions
+        this.checkGameOver();
+    },
+    
+    /**
+     * Update entity list
+     */
+    updateEntityList() {
+        this.entities = [
+            ...HeroManager.heroes,
+            ...TowerManager.towers,
+            ...MinionManager.minions,
+            ...CreatureManager.creatures,
+        ];
+    },
+    
+    /**
+     * Render game
+     */
     render() {
-        this.ctx.fillStyle = '#000';
-        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        // Clear canvas
+        const rect = this.canvas.getBoundingClientRect();
+        this.ctx.fillStyle = '#1a1a2e';
+        this.ctx.fillRect(0, 0, rect.width, rect.height);
         
-        this.camera.apply(this.ctx);
+        // Apply camera transform
+        Camera.applyTransform(this.ctx);
         
-        this.gameState.map.draw(this.ctx, this.camera);
+        // Render world
+        this.renderWorld();
         
-        for (const effect of this.gameState.effects) {
-            if (effect instanceof AuraEffect || effect instanceof RangeIndicator) {
-                effect.draw(this.ctx, this.camera);
-            }
+        // Render attack range indicator (UI element but in world space)
+        UI.renderAttackRange(this.ctx);
+        
+        // Restore transform
+        Camera.restoreTransform(this.ctx);
+        
+        // Render minimap
+        Minimap.render();
+    },
+    
+    /**
+     * Render game world
+     */
+    renderWorld() {
+        // Render map
+        GameMap.render(this.ctx, Camera);
+        
+        // Render towers
+        TowerManager.render(this.ctx);
+        
+        // Render projectiles (zones first)
+        ProjectileManager.render(this.ctx);
+        
+        // Render minions
+        MinionManager.render(this.ctx);
+        
+        // Render creatures
+        CreatureManager.render(this.ctx);
+        
+        // Render heroes
+        HeroManager.render(this.ctx);
+        
+        // Render effects
+        EffectManager.render(this.ctx);
+    },
+    
+	/**
+	 * Pause game - UPDATED
+	 */
+	pause() {
+		this.isPaused = true;
+		Screens.showPause(); // Screens sẽ tự ẩn UI
+	},
+    
+    /**
+     * Resume game
+     */
+    resume() {
+        this.isPaused = false;
+        this.lastTime = performance.now();
+    },
+    
+    /**
+     * Stop game
+     */
+    stop() {
+        this.isRunning = false;
+        this.cleanup();
+    },
+    
+    /**
+     * Cleanup game state
+     */
+    cleanup() {
+        HeroManager.clear();
+        TowerManager.clear();
+        MinionManager.clear();
+        CreatureManager.clear();
+        ProjectileManager.clear();
+        EffectManager.clear();
+        AIManager.clear();
+        Combat.clear();
+        UI.reset();
+        Camera.reset();
+    },
+    
+    /**
+     * Check game over conditions
+     */
+    checkGameOver() {
+        if (this.isGameOver) return;
+        
+        // Check if main tower is destroyed
+        const blueMain = TowerManager.towers.find(t => 
+            t.team === CONFIG.teams.BLUE && t.towerType === 'main'
+        );
+        const redMain = TowerManager.towers.find(t => 
+            t.team === CONFIG.teams.RED && t.towerType === 'main'
+        );
+        
+        if (blueMain && !blueMain.isAlive) {
+            this.endGame(false);
+        } else if (redMain && !redMain.isAlive) {
+            this.endGame(true);
         }
+    },
+    
+    /**
+     * Called when main tower is destroyed
+     */
+    onMainTowerDestroyed(losingTeam) {
+        const won = losingTeam !== CONFIG.teams.BLUE;
+        this.endGame(won);
+    },
+    
+    /**
+     * End game
+     */
+    endGame(won) {
+        this.isGameOver = true;
+        this.isPaused = true;
         
-        for (const minion of this.gameState.minions) {
-            minion.draw(this.ctx, this.camera);
-        }
+        // Show game over screen
+        UI.hideIngameUI();
+        Screens.showGameOver(won);
         
-        for (const creature of this.gameState.creatures) {
-            creature.draw(this.ctx, this.camera);
-        }
-        
-        for (const tower of this.gameState.towers) {
-            tower.draw(this.ctx, this.camera);
-        }
-        
-        for (const hero of this.gameState.heroes) {
-            hero.draw(this.ctx, this.camera);
-        }
-        
-        for (const projectile of this.gameState.projectiles) {
-            projectile.draw(this.ctx, this.camera);
-        }
-        
-        for (const effect of this.gameState.effects) {
-            if (effect instanceof HitEffect || effect instanceof AbilityEffect || effect instanceof ParticleEffect) {
-                effect.draw(this.ctx, this.camera);
-            }
-        }
-        
-        this.camera.reset(this.ctx);
-        
-        this.minimap.draw(this.gameState, this.camera);
-    }
+        console.log(won ? 'Victory!' : 'Defeat!');
+    },
+    
+    /**
+     * Get all entities
+     */
+    getAllEntities() {
+        return this.entities;
+    },
+    
+    /**
+     * Get team heroes
+     */
+    getTeamHeroes(team) {
+        return HeroManager.getTeamHeroes(team);
+    },
+    
+    /**
+     * Get entity by ID
+     */
+    getEntityById(id) {
+        return this.entities.find(e => e.id === id);
+    },
+};
 
-    endGame(winner) {
-        this.gameState.isGameOver = true;
-        this.gameState.winner = winner;
+// Start application when DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('MOBA Arena loaded!');
+    
+    // Initialize screens (this will show the start screen)
+    Screens.init();
+    UI.init();
+    Input.init();
+    
+    // Draw initial canvas background
+    const canvas = document.getElementById('gameCanvas');
+    if (canvas) {
+        const ctx = canvas.getContext('2d');
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
         
-        const matchStats = {
-            duration: this.gameState.elapsedTime,
-            heroes: this.gameState.heroes.map(h => ({
-                name: h.name,
-                team: h.team,
-                kills: h.kills,
-                deaths: h.deaths,
-                assists: h.assists,
-                gold: h.gold,
-                level: h.level
-            })),
-            allyNexusHp: 0,
-            enemyNexusHp: 0
-        };
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        ctx.scale(dpr, dpr);
         
-        const blueNexus = this.gameState.towers.find(t => t.team === CONFIG.TEAM_BLUE && t.type === 'nexus');
-        const redNexus = this.gameState.towers.find(t => t.team === CONFIG.TEAM_RED && t.type === 'nexus');
+        // Draw background
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(0, 0, rect.width, rect.height);
         
-        if (blueNexus) matchStats.allyNexusHp = blueNexus.hp;
-        if (redNexus) matchStats.enemyNexusHp = redNexus.hp;
+        // Draw title effect
+        const gradient = ctx.createRadialGradient(
+            rect.width / 2, rect.height / 2, 0,
+            rect.width / 2, rect.height / 2, rect.width / 2
+        );
+        gradient.addColorStop(0, 'rgba(0, 212, 255, 0.1)');
+        gradient.addColorStop(0.5, 'rgba(124, 58, 237, 0.05)');
+        gradient.addColorStop(1, 'transparent');
         
-        setTimeout(() => {
-            window.screenManager.showGameOver(winner, matchStats);
-        }, 2000);
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, rect.width, rect.height);
+        
+        // Draw grid pattern
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+        ctx.lineWidth = 1;
+        
+        const gridSize = 50;
+        for (let x = 0; x < rect.width; x += gridSize) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, rect.height);
+            ctx.stroke();
+        }
+        for (let y = 0; y < rect.height; y += gridSize) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(rect.width, y);
+            ctx.stroke();
+        }
     }
+});
+
+// Export for module systems
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = Game;
 }

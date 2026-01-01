@@ -1,924 +1,1465 @@
-const DEFAULT_HERO_BASE_STATS = {
-    hp: 500,
-    mana: 250,
-    damage: 55,
-    armor: 25,
-    magicResist: 30,
-    abilityPower: 0,
-    attackSpeed: 0.7,
-    movementSpeed: 330,
-    attackRange: 150,
-    critChance: 0,
-    critDamage: 1.5,
-    lifeSteal: 0,
-    spellVamp: 0,
-    hpRegen: 0.02,
-    manaRegen: 0.03
+/**
+ * ========================================
+ * MOBA Arena - Hero System
+ * ========================================
+ * Quản lý tướng, stats, abilities
+ */
+
+// Hero Registry - lưu trữ tất cả hero definitions
+const HeroRegistry = {
+    heroes: {},
+    
+    register(heroData) {
+        this.heroes[heroData.id] = heroData;
+    },
+    
+    get(heroId) {
+        return this.heroes[heroId];
+    },
+    
+    getAll() {
+        return Object.values(this.heroes);
+    },
+    
+    getRandom() {
+        const ids = Object.keys(this.heroes);
+        return this.heroes[Utils.randomItem(ids)];
+    },
 };
 
-class Hero extends Entity {
-    constructor(x, y, team, heroId, isPlayer = false) {
-        super(x, y, team);
+// Register heroes
+HeroRegistry.register(HeroVanheo);
+HeroRegistry.register(HeroZephy);
+HeroRegistry.register(HeroLaLo);
+HeroRegistry.register(HeroNemo);
+HeroRegistry.register(HeroBalametany);
 
-        const allHeroes = (typeof HEROES !== 'undefined' && HEROES) ? HEROES : {};
-        const heroData = allHeroes[heroId] || allHeroes.vanheo || null;
+/**
+ * Hero Manager
+ */
+const HeroManager = {
+    heroes: [],
+    player: null,
+    
+    /**
+     * Khởi tạo
+     */
+    init() {
+        this.heroes = [];
+        this.player = null;
+    },
+    
+    /**
+     * Tạo hero mới
+     */
+    createHero(heroId, team, isPlayer = false, playerName = null) {
+        const heroData = HeroRegistry.get(heroId);
+        if (!heroData) {
+            console.error(`Hero not found: ${heroId}`);
+            return null;
+        }
+        
+        const spawnPoint = GameMap.getSpawnPoint(team);
+        const hero = new Hero({
+            heroData: heroData,
+            team: team,
+            x: spawnPoint.x + Utils.random(-50, 50),
+            y: spawnPoint.y + Utils.random(-50, 50),
+            isPlayer: isPlayer,
+            playerName: playerName || heroData.name,
+        });
+        
+        this.heroes.push(hero);
+        
+        if (isPlayer) {
+            this.player = hero;
+        }
+        
+        return hero;
+    },
+    
+    /**
+     * Update all heroes
+     */
+    update(deltaTime, entities) {
+        for (const hero of this.heroes) {
+            hero.update(deltaTime, entities);
+        }
+    },
+    
+    /**
+     * Render heroes
+     */
+    render(ctx) {
+        // Sort by Y for proper depth
+        const sortedHeroes = [...this.heroes].sort((a, b) => a.y - b.y);
+        
+        for (const hero of sortedHeroes) {
+            hero.render(ctx);
+        }
+    },
+    
+    /**
+     * Get heroes by team
+     */
+    getTeamHeroes(team) {
+        return this.heroes.filter(h => h.team === team);
+    },
+    
+    /**
+     * Get alive heroes
+     */
+    getAliveHeroes(team = null) {
+        return this.heroes.filter(h => h.isAlive && (team === null || h.team === team));
+    },
+    
+    /**
+     * Get all heroes
+     */
+    getAll() {
+        return this.heroes;
+    },
+    
+    /**
+     * Get player hero
+     */
+    getPlayer() {
+        return this.player;
+    },
+    
+    /**
+     * Clear all
+     */
+    clear() {
+        this.heroes = [];
+        this.player = null;
+    },
+};
 
-        this.heroData = heroData || {
-            id: 'unknown',
-            name: 'Unknown',
-            role: 'Unknown',
-            emoji: '❓',
-            baseStats: { ...DEFAULT_HERO_BASE_STATS },
-            growthStats: {},
-            normalAttack: { damage: 55, range: 150, speed: 0.7, effects: [] },
-            skills: []
-        };
-
-        this.heroId = this.heroData.id || 'unknown';
-        this.name = this.heroData.name || 'Unknown';
-        this.role = this.heroData.role || 'Unknown';
-        this.emoji = this.heroData.emoji || '❓';
-        this.isPlayer = isPlayer;
-        this.isAI = !isPlayer;
-
+/**
+ * Hero Class
+ */
+class Hero {
+    constructor(config) {
+        this.id = Utils.generateId();
+        this.type = 'hero';
+        this.heroData = config.heroData;
+        this.name = this.heroData.name;
+        this.playerName = config.playerName || this.name;
+        this.role = this.heroData.role;
+        
+        this.x = config.x;
+        this.y = config.y;
+        this.team = config.team;
+        this.isPlayer = config.isPlayer || false;
+        
+        this.radius = 35;
+        this.color = config.team === CONFIG.teams.BLUE 
+            ? CONFIG.colors.blueTeam 
+            : CONFIG.colors.redTeam;
+        
+        // Level system
         this.level = 1;
-        this.xp = 0;
-        this.gold = 500;
+        this.exp = 0;
+        this.expToNextLevel = CONFIG.leveling.expPerLevel[1];
+        
+        // Calculate stats
+        this.baseStats = Utils.deepClone(this.heroData.baseStats);
+        this.stats = {};
+        
+        // Initialize buffs and debuffs BEFORE calculateStats
+        this.buffs = [];
+        this.debuffs = [];
+        
+        this.calculateStats();
+        
+        // Current values
+        this.health = this.stats.maxHealth;
+        this.mana = this.stats.maxMana;
+        
+        // Ability levels
+        this.abilityLevels = { q: 0, e: 0, r: 0, t: 0 };
+        this.abilityCooldowns = { q: 0, e: 0, r: 0, t: 0 };
+        
+        // Spell
+        this.spell = null;
+        this.spellCooldown = 0;
+        
+        // Attack
+        this.attackCooldown = 0;
+        this.lastAttackTarget = null;
+        
+        // State
+        this.isAlive = true;
+        this.isDead = false;
+        this.respawnTimer = 0;
+        this.untargetable = false;
+        this.invisible = false;
+        
+        // Movement
+        this.vx = 0;
+        this.vy = 0;
+        this.facingAngle = 0;
+        this.targetPosition = null;
+        
+        // Shield
+        this.shield = 0;
+        
+        // Passive tracking
+        this.passiveStacks = 0;
+        this.passiveTarget = null;
+        this.passiveLastHit = 0;
+        
+        // Combat stats
         this.kills = 0;
         this.deaths = 0;
         this.assists = 0;
-
-        const baseStats = this.heroData.baseStats && typeof this.heroData.baseStats === 'object'
-            ? this.heroData.baseStats
-            : {};
-
-        this.stats = { ...DEFAULT_HERO_BASE_STATS, ...baseStats };
-        this.baseStats = { ...this.stats };
-        this.growthStats = this.heroData.growthStats || {};
-
-        this.maxHp = this.stats.hp || DEFAULT_HERO_BASE_STATS.hp;
-        this.hp = this.maxHp;
-        this.maxMana = this.stats.mana || 0;
-        this.mana = this.maxMana;
-        this.size = 25;
-
-        this.normalAttack = this.heroData.normalAttack || { damage: 55, range: 150, speed: 0.7, effects: [] };
-        this.skills = this.createSkills();
-
-        const attackSpeed = Math.max(0.1, this.stats.attackSpeed || DEFAULT_HERO_BASE_STATS.attackSpeed);
-        this.attackCooldown = 1000 / attackSpeed;
-
-        this.buffs = [];
-        this.debuffs = [];
-
-        this.isStunned = false;
-        this.isInvisible = false;
-        this.damageReduction = 0;
-
-        this.respawnTime = 0;
-        this.deathTime = 0;
-
-        this.lastDamageDealtTo = new Map();
-
-        this.aiData = {
-            targetEnemy: null,
-            strategy: 'FARM_SAFE',
-            lastDecisionTime: 0
-        };
-
-        this.skillCastCallback = null;
-        this.setSkillCastCallback();
+        this.totalDamageDealt = 0;
+        
+        // Ability points
+        this.abilityPoints = 1;
     }
 
-    setSkillCastCallback() {
-        const heroId = this.heroId;
-        const callbacks = {
-            vanheo: (ability, targetX, targetY, gameState) => this.vanheoSkills(ability, targetX, targetY, gameState),
-            zephy: (ability, targetX, targetY, gameState) => this.zephySkills(ability, targetX, targetY, gameState),
-            lalo: (ability, targetX, targetY, gameState) => this.laloSkills(ability, targetX, targetY, gameState),
-            nemo: (ability, targetX, targetY, gameState) => this.nemoSkills(ability, targetX, targetY, gameState),
-            balametany: (ability, targetX, targetY, gameState) => this.balametanySkills(ability, targetX, targetY, gameState)
+    getState() {
+        return {
+            id: this.id,
+            name: this.name,
+            level: this.level,
+            health: this.health,
+            maxHealth: this.stats.maxHealth,
+            healthPercent: (this.health / this.stats.maxHealth) * 100,
+            mana: this.mana,
+            maxMana: this.stats.maxMana,
+            manaPercent: (this.mana / this.stats.maxMana) * 100,
+            x: this.x,
+            y: this.y,
+            isAlive: this.isAlive,
+            abilities: {
+                q: { ready: this.abilityCooldowns.q <= 0 && this.abilityLevels.q > 0 },
+                e: { ready: this.abilityCooldowns.e <= 0 && this.abilityLevels.e > 0 },
+                r: { ready: this.abilityCooldowns.r <= 0 && this.abilityLevels.r > 0 },
+                t: { ready: this.abilityCooldowns.t <= 0 && this.abilityLevels.t > 0 }
+            },
+            hasEscapeRoute: true, // Simplified
+            isCCVulnerable: this.debuffs.length === 0, // Simplified
+            gold: 1000, // Simplified
+            killStreak: this.kills, // Simplified
+            deathStreak: this.deaths, // Simplified
+            deathProbability: 0, // Default
+            timeSinceBase: 0, // Simplified
+            hasManaForCombo: this.mana > 150 // Simplified
         };
-        this.skillCastCallback = callbacks[heroId] || ((ability, targetX, targetY, gameState) => {});
     }
 
-    createSkills() {
-        const skills = {};
-
-        const heroSkills = this.heroData.skills && Array.isArray(this.heroData.skills)
-            ? this.heroData.skills
-            : [];
-
-        for (const skillData of heroSkills) {
-            if (!skillData || typeof skillData !== 'object') continue;
-
-            skills[skillData.key] = {
-                ...skillData,
-                currentCooldown: 0,
-                isReady: true,
-                level: skillData.key === 'r' ? 0 : 1
-            };
+    /**
+     * Calculate final stats
+     */
+    calculateStats() {
+        const base = this.baseStats;
+        const growth = this.heroData.statGrowth;
+        const lvl = this.level - 1;
+        
+        this.stats = {
+            maxHealth: base.health + growth.health * lvl,
+            maxMana: base.mana + growth.mana * lvl,
+            healthRegen: base.healthRegen + growth.healthRegen * lvl,
+            manaRegen: base.manaRegen + growth.manaRegen * lvl,
+            attackDamage: base.attackDamage + growth.attackDamage * lvl,
+            abilityPower: base.abilityPower + (growth.abilityPower || 0) * lvl,
+            armor: base.armor + growth.armor * lvl,
+            magicResist: base.magicResist + growth.magicResist * lvl,
+            attackSpeed: Math.min(
+                base.attackSpeed + growth.attackSpeed * lvl,
+                CONFIG.caps.maxAttackSpeed / 100
+            ),
+            attackRange: base.attackRange,
+            moveSpeed: Math.min(base.moveSpeed, CONFIG.caps.maxSpeed),
+            critChance: Math.min(base.critChance + (growth.critChance || 0) * lvl, CONFIG.caps.maxCritChance),
+            critDamage: base.critDamage,
+            cdr: 0,
+        };
+        
+        // Apply buffs - check if buffs is an array first
+        if (Array.isArray(this.buffs)) {
+            for (const buff of this.buffs) {
+                this.applyBuffToStats(buff);
+            }
         }
-
-        return skills;
     }
-
-    setSummonerSpell(spellId) {
-        const spellData = SUMMONER_SPELLS[spellId];
-        if (!spellData) return;
-
-        this.summonerSpell = {
-            ...spellData,
-            currentCooldown: 0,
-            isReady: true
-        };
-    }
-
-    update(deltaTime, gameState) {
-        if (this.isDead) {
-            this.updateRespawn(gameState);
-            return;
+    
+    /**
+     * Apply buff effects to stats
+     */
+    applyBuffToStats(buff) {
+        if (buff.speedBoost) {
+            this.stats.moveSpeed = Math.min(
+                this.stats.moveSpeed * (1 + buff.speedBoost),
+                CONFIG.caps.maxSpeed
+            );
         }
-
-        this.updateFacingDirection(gameState);
+        if (buff.damageReduction) {
+            // Stored separately
+        }
+    }
+    
+    /**
+     * Update hero
+     */
+    update(deltaTime, entities) {
+        // QUAN TRỌNG: Cập nhật cooldowns ngay cả khi đang chờ hồi sinh
         this.updateCooldowns(deltaTime);
-        this.updateBuffs(deltaTime);
-        this.updateRegen(deltaTime);
-
-        if (this.isStunned) {
-            this.vx = 0;
-            this.vy = 0;
+        
+        // Respawn logic
+        if (this.isDead) {
+            this.respawnTimer -= deltaTime;
+            if (this.respawnTimer <= 0) {
+                this.respawn();
+            }
             return;
         }
-
-        if (this.vx !== 0 || this.vy !== 0) {
-            const speed = Math.min(this.stats.movementSpeed, CONFIG.MAX_MOVEMENT_SPEED);
-            const newX = this.x + this.vx * deltaTime;
-            const newY = this.y + this.vy * deltaTime;
-
-            if (!gameState.map.isCollidingWithWall(newX, newY, this.size)) {
+        
+        if (!this.isAlive) return;
+        
+        // Regeneration
+        this.updateRegen(deltaTime);
+        
+        // Base healing
+        this.updateBaseHealing(deltaTime);
+        
+        // Update buffs/debuffs
+        this.updateBuffs(deltaTime);
+        
+        // Passive update
+        this.updatePassive(deltaTime);
+        
+        // Movement (for player or AI will set vx/vy)
+        if (this.isPlayer) {
+            this.updatePlayerMovement(deltaTime);
+        }
+        
+        this.applyMovement(deltaTime);
+    }
+    
+    /**
+     * Update cooldowns
+     */
+    updateCooldowns(deltaTime) {
+        for (const key of Object.keys(this.abilityCooldowns)) {
+            if (this.abilityCooldowns[key] > 0) {
+                this.abilityCooldowns[key] -= deltaTime;
+            }
+        }
+        
+        if (this.spellCooldown > 0) {
+            this.spellCooldown -= deltaTime;
+        }
+        
+        if (this.attackCooldown > 0) {
+            this.attackCooldown -= deltaTime;
+        }
+    }
+    
+    /**
+     * Update regen
+     */
+    updateRegen(deltaTime) {
+        const dt = deltaTime / 1000;
+        
+        // Health regen
+        if (this.health < this.stats.maxHealth) {
+            this.health = Math.min(
+                this.health + this.stats.healthRegen * dt,
+                this.stats.maxHealth
+            );
+        }
+        
+        // Mana regen
+        if (this.mana < this.stats.maxMana) {
+            this.mana = Math.min(
+                this.mana + this.stats.manaRegen * dt,
+                this.stats.maxMana
+            );
+        }
+    }
+    
+    /**
+     * Heal in base
+     */
+    updateBaseHealing(deltaTime) {
+        if (GameMap.isInHealZone(this.x, this.y, this.team)) {
+            const dt = deltaTime / 1000;
+            const healAmount = this.stats.maxHealth * 0.05 * dt; // 5% per second
+            const manaAmount = this.stats.maxMana * 0.05 * dt;
+            
+            this.health = Math.min(this.health + healAmount, this.stats.maxHealth);
+            this.mana = Math.min(this.mana + manaAmount, this.stats.maxMana);
+        }
+    }
+    
+    /**
+     * Update buffs
+     */
+    updateBuffs(deltaTime) {
+        // Ensure buffs is an array
+        if (!Array.isArray(this.buffs)) {
+            this.buffs = [];
+        }
+        if (!Array.isArray(this.debuffs)) {
+            this.debuffs = [];
+        }
+        
+        // Update buffs
+        for (let i = this.buffs.length - 1; i >= 0; i--) {
+            const buff = this.buffs[i];
+            buff.duration -= deltaTime;
+            
+            if (buff.duration <= 0) {
+                this.buffs.splice(i, 1);
+                this.calculateStats();
+            }
+        }
+        
+        // Update debuffs
+        for (let i = this.debuffs.length - 1; i >= 0; i--) {
+            const debuff = this.debuffs[i];
+            debuff.duration -= deltaTime;
+            
+            if (debuff.duration <= 0) {
+                this.debuffs.splice(i, 1);
+            }
+        }
+    }
+    
+    /**
+     * Update passive
+     */
+    updatePassive(deltaTime) {
+        // Reset passive stacks if timeout
+        if (this.heroData.passive.resetTime) {
+            if (Date.now() - this.passiveLastHit > this.heroData.passive.resetTime) {
+                this.passiveStacks = 0;
+                this.passiveTarget = null;
+            }
+        }
+        
+        // Decay passive stacks
+        if (this.heroData.passive.decayTime) {
+            if (Date.now() - this.passiveLastHit > this.heroData.passive.decayTime) {
+                this.passiveStacks = Math.max(0, this.passiveStacks - 1);
+                this.passiveLastHit = Date.now();
+            }
+        }
+    }
+    
+    /**
+     * Player movement from input - FIX: Reset velocity khi không có input
+     */
+    updatePlayerMovement(deltaTime) {
+        // Cập nhật facing direction theo chuột trước
+        const worldMouse = Camera.screenToWorld(Input.mouseX, Input.mouseY);
+        this.facingAngle = Utils.angleBetweenPoints(this.x, this.y, worldMouse.x, worldMouse.y);
+        
+        let moveX = 0;
+        let moveY = 0;
+        
+        // Kiểm tra từng phím một cách rõ ràng
+        const wDown = Input.isKeyDown('w') || Input.isKeyDown('W');
+        const sDown = Input.isKeyDown('s') || Input.isKeyDown('S');
+        const aDown = Input.isKeyDown('a') || Input.isKeyDown('A');
+        const dDown = Input.isKeyDown('d') || Input.isKeyDown('D');
+        
+        // W - đi về phía trước (hướng facing)
+        if (wDown) {
+            moveX += Math.cos(this.facingAngle);
+            moveY += Math.sin(this.facingAngle);
+        }
+        // S - đi lùi (ngược hướng facing)
+        if (sDown) {
+            moveX -= Math.cos(this.facingAngle);
+            moveY -= Math.sin(this.facingAngle);
+        }
+        // A - đi sang trái (vuông góc với facing, -90 độ)
+        if (aDown) {
+            const leftAngle = this.facingAngle - Math.PI / 2;
+            moveX += Math.cos(leftAngle);
+            moveY += Math.sin(leftAngle);
+        }
+        // D - đi sang phải (vuông góc với facing, +90 độ)
+        if (dDown) {
+            const rightAngle = this.facingAngle + Math.PI / 2;
+            moveX += Math.cos(rightAngle);
+            moveY += Math.sin(rightAngle);
+        }
+        
+        // Normalize diagonal movement
+        if (moveX !== 0 || moveY !== 0) {
+            const length = Math.sqrt(moveX * moveX + moveY * moveY);
+            moveX /= length;
+            moveY /= length;
+        }
+        
+        // Check for CC effects
+        const stunned = Array.isArray(this.debuffs) && this.debuffs.some(d => d.type === 'stun' || d.type === 'knockup');
+        if (stunned) {
+            moveX = 0;
+            moveY = 0;
+        }
+        
+        // Apply speed - CHỈ KHI CÓ INPUT
+        let speed = this.stats.moveSpeed;
+        
+        // Slow effects
+        if (Array.isArray(this.debuffs)) {
+            const slow = this.debuffs.find(d => d.type === 'slow');
+            if (slow) {
+                speed *= (1 - slow.percent / 100);
+            }
+        }
+        
+        // Set velocity - sẽ là 0 nếu không có phím nào được nhấn
+        this.vx = moveX * speed;
+        this.vy = moveY * speed;
+    }
+    
+    /**
+     * Apply movement
+     */
+    applyMovement(deltaTime) {
+        const dt = deltaTime / 1000;
+        
+        const newX = this.x + this.vx * dt;
+        const newY = this.y + this.vy * dt;
+        
+        // Wall collision
+        if (!GameMap.checkWallCollision(newX, newY, this.radius)) {
+            this.x = newX;
+            this.y = newY;
+        } else {
+            // Slide along wall
+            if (!GameMap.checkWallCollision(newX, this.y, this.radius)) {
                 this.x = newX;
+            }
+            if (!GameMap.checkWallCollision(this.x, newY, this.radius)) {
                 this.y = newY;
             }
         }
+        
+        // Clamp to map
+        this.x = Utils.clamp(this.x, this.radius, CONFIG.map.width - this.radius);
+        this.y = Utils.clamp(this.y, this.radius, CONFIG.map.height - this.radius);
     }
-
-    updateFacingDirection(gameState) {
-        if (!gameState || !gameState.playerHero) return;
-
-        if (this === gameState.playerHero && gameState.inputManager) {
-            const mouseX = gameState.inputManager.mouseWorldX || 0;
-            const mouseY = gameState.inputManager.mouseWorldY || 0;
-            this.facingDirection = Math.atan2(mouseY - this.y, mouseX - this.x);
-        } else if (this.vx !== 0 || this.vy !== 0) {
-            this.facingDirection = Math.atan2(this.vy, this.vx);
+    
+    /**
+     * Use ability
+     */
+    useAbility(abilityKey, targetX, targetY, targetEntity = null) {
+        const ability = this.heroData.abilities[abilityKey];
+        if (!ability) return false;
+        
+        const level = this.abilityLevels[abilityKey];
+        if (level === 0) return false;
+        
+        // Check cooldown
+        if (this.abilityCooldowns[abilityKey] > 0) return false;
+        
+        // Check mana
+        const manaCost = ability.manaCost[level - 1];
+        if (this.mana < manaCost) return false;
+        
+        // Check CC
+        if (Array.isArray(this.debuffs) && this.debuffs.some(d => d.type === 'stun' || d.type === 'silence')) {
+            return false;
         }
-    }
-
-    updateCooldowns(deltaTime) {
-        for (const skill of Object.values(this.skills)) {
-            if (skill.currentCooldown > 0) {
-                skill.currentCooldown -= deltaTime * 1000;
-                skill.isReady = skill.currentCooldown <= 0;
-            }
+        
+        // Execute ability
+        const result = ability.execute(this, targetX, targetY, level);
+        if (!result) return false;
+        
+        // Consume mana
+        this.mana -= manaCost;
+        
+        // Set cooldown
+        let cooldown = ability.cooldown[level - 1];
+        cooldown *= (1 - this.stats.cdr / 100);
+        this.abilityCooldowns[abilityKey] = cooldown;
+        
+        // Process result
+        this.processAbilityResult(result);
+        
+        // Break invisibility
+        if (this.invisible) {
+            this.breakInvisibility();
         }
-
-        if (this.summonerSpell && this.summonerSpell.currentCooldown > 0) {
-            this.summonerSpell.currentCooldown -= deltaTime * 1000;
-            this.summonerSpell.isReady = this.summonerSpell.currentCooldown <= 0;
-        }
-    }
-
-    updateBuffs(deltaTime) {
-        this.buffs = this.buffs.filter(buff => {
-            buff.duration -= deltaTime * 1000;
-            return buff.duration > 0;
-        });
-
-        this.debuffs = this.debuffs.filter(debuff => {
-            debuff.duration -= deltaTime * 1000;
-
-            if (debuff.type === 'stun' && debuff.duration <= 0) {
-                this.isStunned = false;
-            }
-
-            return debuff.duration > 0;
-        });
-
-        this.damageReduction = 0;
-        for (const buff of this.buffs) {
-            if (buff.type === 'damageReduction') {
-                this.damageReduction = Math.max(this.damageReduction, buff.value);
-            }
-        }
-    }
-
-    updateRegen(deltaTime) {
-        if (this.hp < this.maxHp) {
-            this.hp = Math.min(this.maxHp, this.hp + this.maxHp * this.stats.hpRegen * deltaTime);
-        }
-
-        if (this.mana < this.maxMana) {
-            this.mana = Math.min(this.maxMana, this.mana + this.maxMana * this.stats.manaRegen * deltaTime);
-        }
-    }
-
-    updateRespawn(gameState) {
-        if (this.respawnTime > 0) {
-            const elapsed = Date.now() - this.deathTime;
-
-            if (elapsed >= this.respawnTime) {
-                this.respawn(gameState);
-            }
-        }
-    }
-
-    getSkillDirection(targetX, targetY, directionDependent) {
-        if (directionDependent && this.facingDirection !== undefined) {
-            return this.facingDirection;
-        }
-        return Math.atan2(targetY - this.y, targetX - this.x);
-    }
-
-    castAbility(skillKey, targetX, targetY, gameState) {
-        const skill = this.skills[skillKey];
-
-        if (!skill) return false;
-        if (!skill.isReady) return false;
-        if (skill.level === 0) return false;
-        if (this.mana < skill.manaCost) return false;
-        if (this.isStunned) return false;
-
-        this.mana -= skill.manaCost;
-
-        const cdr = Math.min(CONFIG.MAX_CDR, 0);
-        skill.currentCooldown = skill.cooldown * 1000 * (1 - cdr);
-        skill.isReady = false;
-
-        this.skillCastCallback(skill, targetX, targetY, gameState);
-
+        
         return true;
     }
-
-    vanheoSkills(skill, targetX, targetY, gameState) {
-        const direction = this.getSkillDirection(targetX, targetY, skill.directionDependent);
-
-        switch (skill.key) {
-            case 'q':
-                this.vanheoMultiShot(skill, direction, gameState);
+    
+    /**
+     * Process ability result
+     */
+    processAbilityResult(result) {
+        switch (result.type) {
+            case 'projectile':
+                ProjectileManager.create(result);
                 break;
-            case 'e':
-                this.vanheoSwiftStep(skill, gameState);
+                
+            case 'delayed_area':
+                ProjectileManager.createDelayedArea(result);
                 break;
-            case 'r':
-                this.vanheoPiercingArrow(skill, direction, gameState);
+                
+            case 'instant_area':
+                this.executeInstantArea(result);
                 break;
-            case 't':
-                this.vanheoRainOfArrows(skill, targetX, targetY, gameState);
+                
+            case 'dash_collision':
+            case 'dash_through':
+                this.executeDash(result);
                 break;
-        }
-    }
-
-    zephySkills(skill, targetX, targetY, gameState) {
-        const direction = this.getSkillDirection(targetX, targetY, skill.directionDependent);
-
-        switch (skill.key) {
-            case 'q':
-                this.zephyDash(skill, direction, gameState);
+                
+            case 'dash_and_shoot':
+                this.executeDashAndShoot(result);
                 break;
-            case 'e':
-                this.zephyIronWall(skill, gameState);
+                
+            case 'blink':
+                this.executeBlink(result);
                 break;
-            case 'r':
-                this.zephyGroundSlam(skill, gameState);
+                
+            case 'leap_slam':
+                this.executeLeap(result);
                 break;
-            case 't':
-                this.zephyEarthquake(skill, targetX, targetY, gameState);
+                
+            case 'channel_area':
+            case 'zone':
+                ProjectileManager.createZone(result);
                 break;
-        }
-    }
-
-    laloSkills(skill, targetX, targetY, gameState) {
-        const direction = this.getSkillDirection(targetX, targetY, skill.directionDependent);
-
-        switch (skill.key) {
-            case 'q':
-                this.laloFireball(skill, direction, gameState);
+                
+            case 'targeted_shield':
+                this.executeShield(result);
                 break;
-            case 'e':
-                this.laloFrostNova(skill, targetX, targetY, gameState);
+                
+            case 'self_buff':
+                this.executeSelfBuff(result);
                 break;
-            case 'r':
-                this.laloLightning(skill, targetX, targetY, gameState);
+                
+            case 'targeted_dash':
+                this.executeTargetedDash(result);
                 break;
-            case 't':
-                this.laloMeteorStorm(skill, targetX, targetY, gameState);
-                break;
-        }
-    }
-
-    nemoSkills(skill, targetX, targetY, gameState) {
-        switch (skill.key) {
-            case 'q':
-                this.nemoHeal(skill, targetX, targetY, gameState);
-                break;
-            case 'e':
-                this.nemoShield(skill, targetX, targetY, gameState);
-                break;
-            case 'r':
-                this.nemoInspire(skill, targetX, targetY, gameState);
-                break;
-            case 't':
-                this.nemoDivineIntervention(skill, gameState);
-                break;
-        }
-    }
-
-    balametanySkills(skill, targetX, targetY, gameState) {
-        const direction = this.getSkillDirection(targetX, targetY, skill.directionDependent);
-
-        switch (skill.key) {
-            case 'q':
-                this.balametanyShadowDash(skill, direction, gameState);
-                break;
-            case 'e':
-                this.balametanyStealth(skill, gameState);
-                break;
-            case 'r':
-                this.balametanyExecute(skill, targetX, targetY, gameState);
-                break;
-            case 't':
-                this.balametanyDeathMark(skill, direction, gameState);
-                break;
-        }
-    }
-
-    vanheoMultiShot(skill, direction, gameState) {
-        const spread = skill.spreadAngle || Math.PI / 6;
-        const shots = skill.shots || 3;
-
-        for (let i = 0; i < shots; i++) {
-            const shotAngle = direction + (i - Math.floor(shots / 2)) * spread / 2;
-            const tx = this.x + Math.cos(shotAngle) * skill.range;
-            const ty = this.y + Math.sin(shotAngle) * skill.range;
-
-            gameState.projectiles.push(
-                new Projectile(this.x, this.y, tx, ty, skill.damage, 800, this, {
-                    color: '#f39c12'
-                })
-            );
-        }
-
-        gameState.effects.push(new AbilityEffect(this.x, this.y, 100, '#f39c12'));
-    }
-
-    vanheoSwiftStep(skill, gameState) {
-        this.buffs.push({
-            type: 'movementSpeed',
-            value: skill.speedBoost,
-            duration: skill.duration * 1000
-        });
-
-        const originalSpeed = this.stats.movementSpeed;
-        this.stats.movementSpeed *= skill.speedBoost;
-
-        setTimeout(() => {
-            this.stats.movementSpeed = originalSpeed;
-        }, skill.duration * 1000);
-
-        gameState.effects.push(new AuraEffect(this, 50, '#4ecca3'));
-    }
-
-    vanheoPiercingArrow(skill, direction, gameState) {
-        const targetX = this.x + Math.cos(direction) * skill.range;
-        const targetY = this.y + Math.sin(direction) * skill.range;
-
-        gameState.projectiles.push(
-            new Projectile(this.x, this.y, targetX, targetY, skill.damage, 1000, this, {
-                color: '#9b59b6',
-                piercing: true,
-                maxDistance: skill.range
-            })
-        );
-
-        gameState.effects.push(new AbilityEffect(this.x, this.y, 80, '#9b59b6'));
-    }
-
-    vanheoRainOfArrows(skill, targetX, targetY, gameState) {
-        const damagePerTick = skill.damage / skill.ticks;
-
-        for (let i = 0; i < skill.ticks; i++) {
-            setTimeout(() => {
-                if (this.isDead) return;
-
-                const targets = getEntitiesInRadius(targetX, targetY, skill.radius,
-                    [...gameState.heroes, ...gameState.minions],
-                    e => e.team !== this.team && !e.isDead
-                );
-
-                for (const target of targets) {
-                    const damage = calculateDamage(this, target, damagePerTick, true, false);
-                    target.takeDamage(damage, this);
-                    gameState.effects.push(new HitEffect(target.x, target.y, damage));
-                }
-            }, i * 1000);
-        }
-
-        gameState.effects.push(new AbilityEffect(targetX, targetY, skill.radius, '#e74c3c', skill.duration * 1000));
-    }
-
-    zephyDash(skill, direction, gameState) {
-        const dashX = this.x + Math.cos(direction) * skill.range;
-        const dashY = this.y + Math.sin(direction) * skill.range;
-
-        this.x = dashX;
-        this.y = dashY;
-
-        const targets = getEntitiesInRadius(this.x, this.y, skill.impactRadius || 150,
-            [...gameState.heroes, ...gameState.minions],
-            e => e.team !== this.team && !e.isDead
-        );
-
-        for (const target of targets) {
-            const damage = calculateDamage(this, target, skill.damage, true, false);
-            target.takeDamage(damage, this);
-            gameState.effects.push(new HitEffect(target.x, target.y, damage));
-        }
-
-        gameState.effects.push(new ParticleEffect(this.x, this.y, 15, '#e74c3c'));
-    }
-
-    zephyIronWall(skill, gameState) {
-        this.buffs.push({
-            type: 'damageReduction',
-            value: skill.damageReduction,
-            duration: skill.duration * 1000
-        });
-
-        gameState.effects.push(new AuraEffect(this, 60, '#95a5a6', 1));
-    }
-
-    zephyGroundSlam(skill, gameState) {
-        const targets = getEntitiesInRadius(this.x, this.y, skill.radius,
-            [...gameState.heroes, ...gameState.minions],
-            e => e.team !== this.team && !e.isDead
-        );
-
-        for (const target of targets) {
-            const damage = calculateDamage(this, target, skill.damage, true, false);
-            target.takeDamage(damage, this);
-            gameState.effects.push(new HitEffect(target.x, target.y, damage));
-        }
-
-        gameState.effects.push(new AbilityEffect(this.x, this.y, skill.radius, '#e67e22'));
-    }
-
-    zephyEarthquake(skill, targetX, targetY, gameState) {
-        const targets = getEntitiesInRadius(targetX, targetY, skill.radius,
-            [...gameState.heroes, ...gameState.minions],
-            e => e.team !== this.team && !e.isDead
-        );
-
-        for (const target of targets) {
-            const damage = calculateDamage(this, target, skill.damage, true, false);
-            target.takeDamage(damage, this);
-            gameState.effects.push(new HitEffect(target.x, target.y, damage));
-
-            if (target instanceof Hero) {
-                target.isStunned = true;
-                target.debuffs.push({
-                    type: 'stun',
-                    duration: skill.stunDuration * 1000
-                });
-
+                
+            case 'charged_global_projectile':
+                // Add charge time then create projectile
                 setTimeout(() => {
-                    target.isStunned = false;
-                }, skill.stunDuration * 1000);
-            }
-        }
-
-        gameState.effects.push(new AbilityEffect(targetX, targetY, skill.radius, '#c0392b', 1000));
-    }
-
-    laloFireball(skill, direction, gameState) {
-        const targetX = this.x + Math.cos(direction) * skill.range;
-        const targetY = this.y + Math.sin(direction) * skill.range;
-
-        gameState.projectiles.push(
-            new Projectile(this.x, this.y, targetX, targetY, skill.damage, 600, this, {
-                color: '#e74c3c',
-                aoe: skill.aoeRadius,
-                size: 12
-            })
-        );
-    }
-
-    laloFrostNova(skill, targetX, targetY, gameState) {
-        const targets = getEntitiesInRadius(targetX, targetY, skill.radius,
-            [...gameState.heroes, ...gameState.minions],
-            e => e.team !== this.team && !e.isDead
-        );
-
-        for (const target of targets) {
-            const damage = calculateDamage(this, target, skill.damage, false, false);
-            target.takeDamage(damage, this);
-            gameState.effects.push(new HitEffect(target.x, target.y, damage));
-
-            if (target.stats && target.stats.movementSpeed) {
-                const originalSpeed = target.stats.movementSpeed;
-                target.stats.movementSpeed *= (1 - skill.slowAmount);
-
-                setTimeout(() => {
-                    target.stats.movementSpeed = originalSpeed;
-                }, skill.slowDuration * 1000);
-            }
-        }
-
-        gameState.effects.push(new AbilityEffect(targetX, targetY, skill.radius, '#3498db'));
-    }
-
-    laloLightning(skill, targetX, targetY, gameState) {
-        const targets = getEntitiesInRadius(targetX, targetY, 100,
-            gameState.heroes.filter(h => h.team !== this.team && !h.isDead),
-            () => true
-        );
-
-        for (const target of targets) {
-            const damage = calculateDamage(this, target, skill.damage, false, false);
-            target.takeDamage(damage, this);
-            gameState.effects.push(new HitEffect(target.x, target.y, damage));
-            gameState.effects.push(new AbilityEffect(target.x, target.y, 50, '#9b59b6', 300));
-        }
-    }
-
-    laloMeteorStorm(skill, targetX, targetY, gameState) {
-        for (let i = 0; i < skill.ticks; i++) {
-            setTimeout(() => {
-                if (this.isDead) return;
-
-                const targets = getEntitiesInRadius(targetX, targetY, skill.radius,
-                    [...gameState.heroes, ...gameState.minions],
-                    e => e.team !== this.team && !e.isDead
-                );
-
-                for (const target of targets) {
-                    const damage = calculateDamage(this, target, skill.damage / skill.ticks, false, false);
-                    target.takeDamage(damage, this);
-                    gameState.effects.push(new HitEffect(target.x, target.y, damage));
-                }
-            }, i * 1000);
-        }
-
-        gameState.effects.push(new AbilityEffect(targetX, targetY, skill.radius, '#e74c3c', skill.duration * 1000));
-    }
-
-    nemoHeal(skill, targetX, targetY, gameState) {
-        const direction = Math.atan2(targetY - this.y, targetX - this.x);
-        const healX = this.x + Math.cos(direction) * skill.range;
-        const healY = this.y + Math.sin(direction) * skill.range;
-
-        const targets = getEntitiesInRadius(healX, healY, skill.healRadius || 100,
-            gameState.heroes.filter(h => h.team === this.team && !h.isDead),
-            () => true
-        );
-
-        for (const target of targets) {
-            const healAmount = skill.healing * (1 + this.stats.abilityPower / 100);
-            target.hp = Math.min(target.maxHp, target.hp + healAmount);
-            gameState.effects.push(new AbilityEffect(target.x, target.y, 80, '#4ecca3'));
-        }
-    }
-
-    nemoShield(skill, targetX, targetY, gameState) {
-        const direction = Math.atan2(targetY - this.y, targetX - this.x);
-        const shieldX = this.x + Math.cos(direction) * skill.range;
-        const shieldY = this.y + Math.sin(direction) * skill.range;
-
-        const targets = getEntitiesInRadius(shieldX, shieldY, skill.shieldRadius || 100,
-            gameState.heroes.filter(h => h.team === this.team && !h.isDead),
-            () => true
-        );
-
-        for (const target of targets) {
-            const shieldAmount = skill.shieldAmount * (1 + this.stats.abilityPower / 100);
-            target.buffs.push({
-                type: 'shield',
-                value: shieldAmount,
-                duration: skill.duration * 1000
-            });
-            gameState.effects.push(new AuraEffect(target, 60, '#3498db', skill.duration));
-        }
-    }
-
-    nemoInspire(skill, targetX, targetY, gameState) {
-        const direction = Math.atan2(targetY - this.y, targetX - this.x);
-        const inspireX = this.x + Math.cos(direction) * skill.range;
-        const inspireY = this.y + Math.sin(direction) * skill.range;
-
-        const targets = getEntitiesInRadius(inspireX, inspireY, skill.range,
-            gameState.heroes.filter(h => h.team === this.team && !h.isDead),
-            () => true
-        );
-
-        for (const target of targets) {
-            const asBoost = skill.attackSpeedBoost;
-            const msBoost = skill.movementSpeedBoost;
-
-            target.stats.attackSpeed += asBoost;
-            target.stats.movementSpeed += msBoost;
-
-            setTimeout(() => {
-                target.stats.attackSpeed -= asBoost;
-                target.stats.movementSpeed -= msBoost;
-            }, skill.duration * 1000);
-
-            gameState.effects.push(new AuraEffect(target, 70, '#f39c12', skill.duration));
-        }
-    }
-
-    nemoDivineIntervention(skill, gameState) {
-        const allies = gameState.heroes.filter(h => h.team === this.team && !h.isDead);
-
-        for (const ally of allies) {
-            const healAmount = skill.healing * (1 + this.stats.abilityPower / 100);
-            ally.hp = Math.min(ally.maxHp, ally.hp + healAmount);
-
-            const shieldAmount = skill.shieldAmount * (1 + this.stats.abilityPower / 100);
-            ally.buffs.push({
-                type: 'shield',
-                value: shieldAmount,
-                duration: 5000
-            });
-
-            gameState.effects.push(new AuraEffect(ally, 100, '#4ecca3', 2));
-        }
-
-        gameState.effects.push(new AbilityEffect(this.x, this.y, skill.radius, '#4ecca3', 500));
-    }
-
-    balametanyShadowDash(skill, direction, gameState) {
-        this.x += Math.cos(direction) * skill.range;
-        this.y += Math.sin(direction) * skill.range;
-
-        const targets = getEntitiesInRadius(this.x, this.y, skill.impactRadius || 150,
-            [...gameState.heroes, ...gameState.minions],
-            e => e.team !== this.team && !e.isDead
-        );
-
-        for (const target of targets) {
-            const damage = calculateDamage(this, target, skill.damage, true, false);
-            target.takeDamage(damage, this);
-            gameState.effects.push(new HitEffect(target.x, target.y, damage));
-        }
-
-        gameState.effects.push(new ParticleEffect(this.x, this.y, 10, '#8e44ad'));
-    }
-
-    balametanyStealth(skill, gameState) {
-        this.isInvisible = true;
-        this.debuffs.push({
-            type: 'invisible',
-            duration: skill.duration * 1000
-        });
-
-        setTimeout(() => {
-            this.isInvisible = false;
-        }, skill.duration * 1000);
-
-        gameState.effects.push(new AuraEffect(this, 50, 'rgba(142, 68, 173, 0.3)', skill.duration));
-    }
-
-    balametanyExecute(skill, targetX, targetY, gameState) {
-        const targets = getEntitiesInRadius(targetX, targetY, skill.range,
-            [...gameState.heroes, ...gameState.minions],
-            e => e.team !== this.team && !e.isDead
-        );
-
-        for (const target of targets) {
-            let damage = skill.baseDamage;
-            if (target.hp / target.maxHp < skill.executeThreshold) {
-                damage += skill.executeDamage;
-            }
-
-            const actualDamage = calculateDamage(this, target, damage, true, false);
-            target.takeDamage(actualDamage, this);
-            gameState.effects.push(new HitEffect(target.x, target.y, actualDamage));
-        }
-
-        gameState.effects.push(new AbilityEffect(targetX, targetY, 100, '#8e44ad'));
-    }
-
-    balametanyDeathMark(skill, direction, gameState) {
-        const targetX = this.x + Math.cos(direction) * skill.range;
-        const targetY = this.y + Math.sin(direction) * skill.range;
-
-        this.x = targetX;
-        this.y = targetY;
-
-        const targets = getEntitiesInRadius(targetX, targetY, 100,
-            gameState.heroes.filter(h => h.team !== this.team && !h.isDead),
-            () => true
-        );
-
-        for (const target of targets) {
-            const damage = skill.damage;
-            target.takeDamage(damage, this);
-            gameState.effects.push(new HitEffect(target.x, target.y, damage));
-
-            setTimeout(() => {
-                if (!target.isDead) {
-                    const executeDamage = damage * skill.markMultiplier;
-                    const finalDamage = calculateDamage(this, target, executeDamage, true, false);
-                    target.takeDamage(finalDamage, this);
-                    gameState.effects.push(new HitEffect(target.x, target.y, finalDamage));
-                }
-            }, skill.markDuration * 1000);
-        }
-
-        gameState.effects.push(new AbilityEffect(targetX, targetY, 200, '#8e44ad', skill.markDuration * 1000));
-    }
-
-    autoAttack(targetX, targetY, gameState) {
-        if (this.canAttack()) {
-            const targets = [...gameState.minions, ...gameState.heroes]
-                .filter(e => e.team !== this.team && !e.isDead);
-
-            let closestTarget = null;
-            let closestDist = this.stats.attackRange;
-
-            for (const target of targets) {
-                const dist = this.distanceTo(target);
-                if (dist < closestDist) {
-                    closestTarget = target;
-                    closestDist = dist;
-                }
-            }
-
-            if (closestTarget) {
-                this.performAttack(closestTarget, gameState);
-            }
-        }
-    }
-
-    useSummonerSpell(targetX, targetY, gameState) {
-        if (!this.summonerSpell || !this.summonerSpell.isReady) return;
-        if (this.isStunned) return;
-
-        this.summonerSpell.currentCooldown = this.summonerSpell.cooldown;
-        this.summonerSpell.isReady = false;
-
-        switch (this.summonerSpell.id) {
-            case 'heal':
-                const healPercent = this.summonerSpell.healPercent;
-                this.hp = Math.min(this.maxHp, this.hp + this.maxHp * healPercent);
-                gameState.effects.push(new AbilityEffect(this.x, this.y, 50, '#4ecca3'));
+                    ProjectileManager.create({
+                        ...result,
+                        type: 'projectile',
+                        x: this.x,
+                        y: this.y,
+                    });
+                }, result.chargeTime);
                 break;
-            case 'flash':
-                const dx = targetX - this.x;
-                const dy = targetY - this.y;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-                const flashRange = Math.min(this.summonerSpell.range, dist);
-
-                if (dist > 0) {
-                    const newX = this.x + (dx / dist) * flashRange;
-                    const newY = this.y + (dy / dist) * flashRange;
-
-                    if (!gameState.map.isCollidingWithWall(newX, newY, this.size)) {
-                        this.x = newX;
-                        this.y = newY;
+        }
+    }
+    
+    /**
+     * Execute instant area damage
+     */
+    executeInstantArea(result) {
+        const entities = Game.getAllEntities();
+        
+        for (const entity of entities) {
+            if (!entity.isAlive) continue;
+            if (entity === this) continue;
+            if (entity.team === this.team) continue;
+            if (entity.untargetable) continue;
+            
+            const dist = Utils.distance(result.x, result.y, entity.x, entity.y);
+            if (dist <= result.radius) {
+                Combat.dealDamage(this, entity, result.damage, result.damageType);
+                
+                if (result.effects) {
+                    for (const effect of result.effects) {
+                        Combat.applyEffect(entity, effect, this);
                     }
                 }
-                gameState.effects.push(new ParticleEffect(this.x, this.y, 10, '#f39c12'));
-                break;
-            case 'haste':
-                this.buffs.push({
-                    type: 'movementSpeed',
-                    value: 1,
-                    duration: this.summonerSpell.duration,
-                    customSpeed: this.summonerSpell.speed
-                });
-                gameState.effects.push(new AuraEffect(this, 50, '#f39c12', 2));
-                break;
+            }
+        }
+        
+        EffectManager.createExplosion(result.x, result.y, result.radius, result.color);
+    }
+    
+    /**
+     * Unstick from wall after dash/blink/leap
+     * Move hero away from wall toward the direction they came from or nearest free space
+     */
+    unstickFromWall() {
+        // Check if stuck in wall
+        if (!GameMap.checkWallCollision(this.x, this.y, this.radius)) {
+            return; // Not in wall
+        }
+        
+        // Try to move in 8 directions: back, front-left, front-right, left, right, back-left, back-right, front
+        const directions = [
+            { x: Math.cos(this.facingAngle + Math.PI), y: Math.sin(this.facingAngle + Math.PI) }, // Back
+            { x: Math.cos(this.facingAngle - Math.PI / 4), y: Math.sin(this.facingAngle - Math.PI / 4) }, // Front-left
+            { x: Math.cos(this.facingAngle + Math.PI / 4), y: Math.sin(this.facingAngle + Math.PI / 4) }, // Front-right
+            { x: Math.cos(this.facingAngle - Math.PI / 2), y: Math.sin(this.facingAngle - Math.PI / 2) }, // Left
+            { x: Math.cos(this.facingAngle + Math.PI / 2), y: Math.sin(this.facingAngle + Math.PI / 2) }, // Right
+            { x: Math.cos(this.facingAngle - 3*Math.PI / 4), y: Math.sin(this.facingAngle - 3*Math.PI / 4) }, // Back-left
+            { x: Math.cos(this.facingAngle + 3*Math.PI / 4), y: Math.sin(this.facingAngle + 3*Math.PI / 4) }, // Back-right
+            { x: Math.cos(this.facingAngle), y: Math.sin(this.facingAngle) }, // Front
+        ];
+        
+        const pushDistance = this.radius + 5; // Push distance
+        
+        for (const dir of directions) {
+            const testX = this.x + dir.x * pushDistance;
+            const testY = this.y + dir.y * pushDistance;
+            
+            if (!GameMap.checkWallCollision(testX, testY, this.radius)) {
+                // Found free space
+                this.x = testX;
+                this.y = testY;
+                return;
+            }
+        }
+        
+        // If no direction works, try larger distance
+        for (const dir of directions) {
+            const testX = this.x + dir.x * pushDistance * 2;
+            const testY = this.y + dir.y * pushDistance * 2;
+            
+            if (!GameMap.checkWallCollision(testX, testY, this.radius)) {
+                this.x = testX;
+                this.y = testY;
+                return;
+            }
         }
     }
-
-    gainXp(amount) {
-        this.xp += amount;
-        const xpToLevel = this.getXpForNextLevel();
-        while (this.xp >= xpToLevel) {
-            this.xp -= xpToLevel;
+    
+    /**
+     * Execute dash
+     */
+    executeDash(result) {
+        const startX = this.x;
+        const startY = this.y;
+        const endX = result.dashX;
+        const endY = result.dashY;
+        
+        // Validate end position
+        let finalX = endX;
+        let finalY = endY;
+        
+        // Check wall collision along dash path
+        const steps = 20;
+        for (let i = 1; i <= steps; i++) {
+            const t = i / steps;
+            const testX = Utils.lerp(startX, endX, t);
+            const testY = Utils.lerp(startY, endY, t);
+            
+            if (GameMap.checkWallCollision(testX, testY, this.radius)) {
+                finalX = Utils.lerp(startX, endX, (i - 1) / steps);
+                finalY = Utils.lerp(startY, endY, (i - 1) / steps);
+                break;
+            }
+        }
+        
+        // If dash_collision, check for entity collision
+        if (result.type === 'dash_collision' || result.type === 'dash_through') {
+            const entities = Game.getAllEntities();
+            let hitEntity = null;
+            
+            for (const entity of entities) {
+                if (!entity.isAlive) continue;
+                if (entity === this) continue;
+                if (entity.team === this.team) continue;
+                if (entity.untargetable) continue;
+                
+                // Check if entity is along dash path
+                const intersection = Utils.lineCircleIntersection(
+                    startX, startY, finalX, finalY,
+                    entity.x, entity.y, entity.radius + this.radius
+                );
+                
+                if (intersection) {
+                    // Hit entity
+                    Combat.dealDamage(this, entity, result.damage, result.damageType);
+                    
+                    if (result.onHit) {
+                        Combat.applyEffect(entity, result.onHit, this);
+                    }
+                    
+                    if (result.stopOnHit) {
+                        finalX = intersection.x;
+                        finalY = intersection.y;
+                        hitEntity = entity;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // Move to final position
+        this.x = finalX;
+        this.y = finalY;
+        this.unstickFromWall();
+    }
+    
+    /**
+     * Execute dash and shoot
+     */
+    executeDashAndShoot(result) {
+        // Dash first
+        this.x = result.dashX;
+        this.y = result.dashY;
+        
+        // Then shoot
+        if (result.projectile) {
+            ProjectileManager.create({
+                ...result.projectile,
+                x: this.x,
+                y: this.y,
+            });
+        }
+    }
+    
+    /**
+     * Execute blink
+     */
+    executeBlink(result) {
+        // Check if target is valid
+        if (!GameMap.checkWallCollision(result.targetX, result.targetY, this.radius)) {
+            this.x = result.targetX;
+            this.y = result.targetY;
+        } else {
+            // Target position is in wall, find nearest valid position
+            const testRadius = 50;
+            const steps = 12;
+            for (let i = 1; i <= steps; i++) {
+                const angle = (i / steps) * Math.PI * 2;
+                const testX = result.targetX + Math.cos(angle) * testRadius;
+                const testY = result.targetY + Math.sin(angle) * testRadius;
+                
+                if (!GameMap.checkWallCollision(testX, testY, this.radius)) {
+                    this.x = testX;
+                    this.y = testY;
+                    return;
+                }
+            }
+        }
+        this.unstickFromWall();
+    }
+    
+    /**
+     * Execute leap
+     */
+    executeLeap(result) {
+        this.untargetable = true;
+        
+        // Animate leap (simplified - instant for now)
+        setTimeout(() => {
+            this.x = result.targetX;
+            this.y = result.targetY;
+            this.unstickFromWall();
+            this.untargetable = false;
+            
+            // Deal damage on landing
+            this.executeInstantArea({
+                x: this.x,
+                y: this.y,
+                radius: result.radius,
+                damage: result.damage,
+                damageType: result.damageType,
+                effects: result.effects,
+                color: result.color,
+            });
+        }, result.leapDuration);
+    }
+    
+    /**
+     * Execute shield
+     */
+    executeShield(result) {
+        // Find target ally
+        let target = this;
+        
+        const entities = Game.getAllEntities();
+        let closestDist = result.range;
+        
+        for (const entity of entities) {
+            if (!entity.isAlive) continue;
+            if (entity.type !== 'hero') continue;
+            if (entity.team !== this.team) continue;
+            
+            const dist = Utils.distance(result.targetX, result.targetY, entity.x, entity.y);
+            if (dist < closestDist) {
+                closestDist = dist;
+                target = entity;
+            }
+        }
+        
+        // Apply shield
+        target.addShield(result.shieldAmount, result.duration);
+    }
+    
+    /**
+     * Execute self buff
+     */
+    executeSelfBuff(result) {
+        if (result.effects.invisible) {
+            this.invisible = true;
+        }
+        
+        this.addBuff({
+            type: 'self_buff',
+            ...result.effects,
+            duration: result.duration,
+            breakOnAction: result.breakOnAction,
+        });
+    }
+    
+    /**
+     * Execute targeted dash (to enemy)
+     */
+    executeTargetedDash(result) {
+        if (!result.target) return;
+        
+        // Dash to behind target
+        const angle = Utils.angleBetween(result.target, this);
+        const targetX = result.target.x + Math.cos(angle) * (result.target.radius + this.radius);
+        const targetY = result.target.y + Math.sin(angle) * (result.target.radius + this.radius);
+        
+        this.x = targetX;
+        this.y = targetY;
+        
+        // Deal damage
+        Combat.dealDamage(this, result.target, result.damage, result.damageType);
+        
+        // Check for kill
+        if (!result.target.isAlive && result.onKill) {
+            result.onKill();
+        }
+    }
+    
+    /**
+     * Use spell (bổ trợ)
+     */
+    useSpell(targetX, targetY) {
+        if (!this.spell) return false;
+        if (this.spellCooldown > 0) return false;
+        
+        const spellData = CONFIG.spells[this.spell];
+        if (!spellData) return false;
+        
+        // Execute spell
+        switch (this.spell) {
+            case 'heal':
+                const healAmount = this.stats.maxHealth * spellData.healPercent;
+                Combat.heal(this, this, healAmount);
+                break;
+                
+            case 'flash':
+                const angle = Utils.angleBetweenPoints(this.x, this.y, targetX, targetY);
+                const flashX = this.x + Math.cos(angle) * spellData.distance;
+                const flashY = this.y + Math.sin(angle) * spellData.distance;
+                
+                if (!GameMap.checkWallCollision(flashX, flashY, this.radius)) {
+                    this.x = flashX;
+                    this.y = flashY;
+                }
+                break;
+                
+            case 'haste':
+                this.addBuff({
+                    type: 'haste',
+                    speedBoost: (spellData.speedBoost - this.stats.moveSpeed) / this.stats.moveSpeed,
+                    duration: spellData.duration,
+                });
+                break;
+        }
+        
+        this.spellCooldown = spellData.cooldown;
+        return true;
+    }
+    
+    /**
+     * Basic attack
+     */
+    basicAttack(target) {
+        if (this.attackCooldown > 0) return false;
+        if (!target || !target.isAlive) return false;
+        if (target.untargetable) return false;
+        
+        // Check range
+        const dist = Utils.distance(this.x, this.y, target.x, target.y);
+        if (dist > this.stats.attackRange + target.radius) return false;
+        
+        // Check CC
+        if (Array.isArray(this.debuffs) && this.debuffs.some(d => d.type === 'stun' || d.type === 'disarm')) {
+            return false;
+        }
+        
+        // Execute attack
+        const result = this.heroData.basicAttack.execute(this, target);
+        
+        if (result.type === 'projectile') {
+            ProjectileManager.create({
+                ...result,
+                x: this.x,
+                y: this.y,
+                // Lấy pierceWalls từ heroData nếu có
+                pierceWalls: this.heroData.basicAttack.pierceWalls || false,
+            });
+        } else {
+            // Melee attack - instant damage
+            Combat.dealDamage(this, target, result.damage, result.damageType);
+        }
+        
+        this.lastAttackTarget = target;
+        this.attackCooldown = 1000 / this.stats.attackSpeed;
+        
+        if (this.invisible) {
+            this.breakInvisibility();
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Take damage
+     */
+    takeDamage(amount, attacker, damageType) {
+        if (!this.isAlive) return 0;
+        if (this.untargetable) return 0;
+        
+        let actualDamage = amount;
+        
+        // Damage reduction from buffs
+        if (Array.isArray(this.buffs)) {
+            for (const buff of this.buffs) {
+                if (buff.damageReduction) {
+                    actualDamage *= (1 - buff.damageReduction);
+                }
+            }
+        }
+        
+        // Apply armor/magic resist
+        if (damageType === 'physical') {
+            const reduction = this.stats.armor / (this.stats.armor + 100);
+            actualDamage *= (1 - reduction);
+        } else if (damageType === 'magical') {
+            const reduction = this.stats.magicResist / (this.stats.magicResist + 100);
+            actualDamage *= (1 - reduction);
+        }
+        // True damage bypasses resistances
+        
+        // Shield first
+        if (this.shield > 0) {
+            const shieldDamage = Math.min(this.shield, actualDamage);
+            this.shield -= shieldDamage;
+            actualDamage -= shieldDamage;
+        }
+        
+        actualDamage = Math.min(this.health, actualDamage);
+        this.health -= actualDamage;
+        
+        // Trigger passive effects (e.g., Nemo's passive)
+        this.checkPassiveTrigger();
+        
+        // Show damage
+        EffectManager.createDamageNumber(this.x, this.y, actualDamage, damageType);
+        
+        if (this.health <= 0) {
+            this.die(attacker);
+        }
+        
+        return actualDamage;
+    }
+    
+    /**
+     * Check passive triggers
+     */
+    checkPassiveTrigger() {
+        // Nemo passive
+        if (this.heroData.id === 'nemo' && this.health / this.stats.maxHealth <= this.heroData.passive.hpThreshold) {
+            if (!this.passiveOnCooldown) {
+                this.addBuff({
+                    type: 'iron_will',
+                    damageReduction: this.heroData.passive.damageReduction,
+                    duration: this.heroData.passive.duration,
+                });
+                this.passiveOnCooldown = true;
+                setTimeout(() => {
+                    this.passiveOnCooldown = false;
+                }, this.heroData.passive.cooldown);
+            }
+        }
+    }
+    
+    /**
+     * Die
+     */
+    die(killer) {
+        this.isAlive = false;
+        this.isDead = true;
+        this.deaths++;
+        
+        // Calculate respawn time
+        const gameMinutes = Game.gameTime / 60000;
+        this.respawnTimer = CONFIG.game.respawnBaseTime + gameMinutes * CONFIG.game.respawnTimePerMinute;
+        
+        // Calculate exp reward for hero kill
+        const heroKillExp = 100 + this.level * 20;
+        
+        // === GET KILL CREDIT FIRST (before damageLog is cleared) ===
+        // Bước 1: Lấy tất cả tướng tham gia trong 5s cuối
+        const participantsData = Combat.getHeroesInLastFiveSecondsWithDamage(this, killer);
+        
+        // Bước 2: Xác định tướng nhận kill credit
+        let creditHero = null;
+        
+        if (killer && killer.type === 'hero') {
+            // Nếu killer là tướng → killer nhận kill
+            creditHero = killer;
+        } else if (participantsData.length > 0) {
+            // Nếu killer là non-hero (trụ/lính/quái) nhưng có tướng tham gia
+            // → tướng gây sát thương GẦN NHẤT (timestamp gần nhất) nhận kill
+            creditHero = Combat.getMostRecentDamageHero(participantsData);
+        }
+        // Nếu killer là minion/tower/creature nhưng KHÔNG có tướng nào tham gia
+        // → creditHero vẫn = null (không ai nhận kill)
+        
+        // Bước 3: Cộng kill cho tướng nhận credit
+        if (creditHero) {
+            creditHero.kills++;
+        }
+        
+        // Bước 4: Cộng assists cho những tướng khác
+        const heroes = participantsData.map(p => p.hero);
+        for (const hero of heroes) {
+            if (hero !== creditHero) {
+                hero.assists++;
+            }
+        }
+        
+        // === DISTRIBUTE EXPERIENCE (after damageLog data is extracted) ===
+        Combat.distributeExperience(this, killer, heroKillExp);
+        
+        // Death effect
+        EffectManager.createExplosion(this.x, this.y, 50, this.color);
+        Camera.shake(10, 300);
+        
+        // Announcement - hiển thị killer object (có thể là hero, minion, tower, creature)
+        // Nếu creditHero tồn tại → hiển thị creditHero, nếu không → hiển thị killer (minion/tower/etc)
+        UI.addKillFeed(creditHero || killer, this, 'kill');
+    }
+    
+    /**
+     * Respawn
+     */
+    respawn() {
+        this.isDead = false;
+        this.isAlive = true;
+        
+        const spawnPoint = GameMap.getSpawnPoint(this.team);
+        this.x = spawnPoint.x + Utils.random(-50, 50);
+        this.y = spawnPoint.y + Utils.random(-50, 50);
+        
+        this.health = this.stats.maxHealth;
+        this.mana = this.stats.maxMana;
+        this.shield = 0;
+        this.buffs = [];
+        this.debuffs = [];
+        this.invisible = false;
+        this.untargetable = false;
+    }
+    
+    /**
+     * Gain experience
+     */
+    gainExp(amount) {
+        this.exp += amount;
+        
+        while (this.exp >= this.expToNextLevel && this.level < CONFIG.leveling.maxLevel) {
             this.levelUp();
         }
     }
-
-    getXpForNextLevel() {
-        return 100 + (this.level - 1) * 50;
-    }
-
+    
+    /**
+     * Level up
+     */
     levelUp() {
+        this.exp -= this.expToNextLevel;
         this.level++;
-        this.respawnTime = Math.min(
-            CONFIG.RESPAWN_BASE_TIME + (this.level - 1) * CONFIG.RESPAWN_TIME_PER_LEVEL,
-            CONFIG.RESPAWN_MAX_TIME
+        this.abilityPoints++;
+        
+        // Get next level exp requirement
+        if (this.level < CONFIG.leveling.maxLevel) {
+            this.expToNextLevel = CONFIG.leveling.expPerLevel[this.level];
+        } else {
+            this.expToNextLevel = Infinity;
+        }
+        
+        // Recalculate stats
+        this.calculateStats();
+        
+        // Heal a bit on level up
+        this.health = Math.min(this.health + 50, this.stats.maxHealth);
+        this.mana = Math.min(this.mana + 30, this.stats.maxMana);
+        
+        // Effect
+        EffectManager.createExplosion(this.x, this.y, 40, '#fbbf24');
+    }
+    
+    /**
+     * Level up ability
+     */
+    levelUpAbility(abilityKey) {
+        if (this.abilityPoints <= 0) return false;
+        
+        const ability = this.heroData.abilities[abilityKey];
+        if (!ability) return false;
+        
+        const currentLevel = this.abilityLevels[abilityKey];
+        
+        // Check max level
+        if (currentLevel >= ability.maxLevel) return false;
+        
+        // Ultimate restrictions
+        if (abilityKey === 't') {
+            if (this.level < 4) return false;
+            if (currentLevel >= 1 && this.level < 8) return false;
+            if (currentLevel >= 2 && this.level < 12) return false;
+        }
+        
+        this.abilityLevels[abilityKey] = currentLevel + 1;
+        this.abilityPoints--;
+        
+        return true;
+    }
+    
+    /**
+     * Add buff
+     */
+    addBuff(buff) {
+        if (!Array.isArray(this.buffs)) {
+            this.buffs = [];
+        }
+        this.buffs.push(buff);
+        this.calculateStats();
+    }
+    
+    /**
+     * Add debuff
+     */
+    addDebuff(debuff) {
+        if (!Array.isArray(this.debuffs)) {
+            this.debuffs = [];
+        }
+        this.debuffs.push(debuff);
+    }
+    
+    /**
+     * Remove debuff
+     */
+    removeDebuff(debuff) {
+        if (!Array.isArray(this.debuffs)) return;
+        const index = this.debuffs.indexOf(debuff);
+        if (index !== -1) {
+            this.debuffs.splice(index, 1);
+        }
+    }
+    
+    /**
+     * Add shield
+     */
+    addShield(amount, duration) {
+        this.shield += amount;
+        
+        // Shield expires
+        setTimeout(() => {
+            this.shield = Math.max(0, this.shield - amount);
+        }, duration);
+    }
+    
+    /**
+     * Reduce cooldowns
+     */
+    reduceCooldowns(amount) {
+        for (const key of Object.keys(this.abilityCooldowns)) {
+            this.abilityCooldowns[key] = Math.max(0, this.abilityCooldowns[key] - amount);
+        }
+    }
+    
+    /**
+     * Add passive stack
+     */
+    addPassiveStack() {
+        this.passiveStacks = Math.min(
+            (this.passiveStacks || 0) + 1,
+            this.heroData.passive.maxStacks
         );
-
-        if (this.growthStats) {
-            if (this.growthStats.hp) this.maxHp += this.growthStats.hp;
-            if (this.growthStats.mana) this.maxMana += this.growthStats.mana;
-            if (this.growthStats.damage) this.stats.damage += this.growthStats.damage;
-            if (this.growthStats.armor) this.stats.armor += this.growthStats.armor;
-            if (this.growthStats.magicResist) this.stats.magicResist += this.growthStats.magicResist;
+        this.passiveLastHit = Date.now();
+    }
+    
+    /**
+     * Break invisibility
+     */
+    breakInvisibility() {
+        this.invisible = false;
+        // Remove invisibility buff
+        if (Array.isArray(this.buffs)) {
+            this.buffs = this.buffs.filter(b => !b.invisible);
         }
-
-        this.hp = this.maxHp;
-        this.mana = this.maxMana;
+        this.calculateStats();
     }
-
-    gainGold(amount) {
-        this.gold += amount;
+    
+    /**
+     * Is in brush
+     */
+    isInBrush() {
+        return GameMap.isInBrush(this.x, this.y);
     }
-
-    respawn(gameState) {
-        const spawnPoints = gameState.map.spawnPoints;
-        const spawn = this.team === CONFIG.TEAM_BLUE ? spawnPoints[CONFIG.TEAM_BLUE] : spawnPoints[CONFIG.TEAM_RED];
-
-        this.x = spawn.x;
-        this.y = spawn.y;
-        this.hp = this.maxHp;
-        this.mana = this.maxMana;
-        this.isDead = false;
-        this.deathTime = 0;
-
-        gameState.effects.push(new AbilityEffect(this.x, this.y, 100, '#4ecca3', 500));
+    
+    /**
+     * Is visible to enemy
+     */
+    isVisibleTo(viewer) {
+        if (viewer.team === this.team) return true;
+        if (this.invisible && !viewer.isInBrush()) return false;
+        if (this.isInBrush() && !viewer.isInBrush()) return false;
+        return true;
     }
-
-    draw(ctx, camera) {
+    
+    /**
+     * Render hero
+     */
+    render(ctx) {
         if (this.isDead) return;
-        if (!camera.isVisible(this.x, this.y, this.size)) return;
-
-        const screenX = camera.xToScreen(this.x);
-        const screenY = camera.yToScreen(this.y);
-
+        
+        // Don't render invisible enemies
+        if (this.invisible && !this.isPlayer && this.team !== HeroManager.player?.team) {
+            return;
+        }
+        
         ctx.save();
-        ctx.translate(screenX, screenY);
-
-        if (this.isInvisible) {
-            ctx.globalAlpha = 0.4;
+        ctx.translate(this.x, this.y);
+        
+        // In brush indicator
+        if (this.isInBrush()) {
+            ctx.globalAlpha = 0.6;
         }
-
-        const teamColor = this.team === CONFIG.TEAM_BLUE ? '#4ecca3' : '#e94560';
-        ctx.fillStyle = teamColor;
+        
+        // Body
+        const gradient = ctx.createRadialGradient(0, -5, 5, 0, 10, this.radius);
+        gradient.addColorStop(0, this.heroData.color);
+        gradient.addColorStop(1, this.color);
+        
+        ctx.fillStyle = gradient;
         ctx.beginPath();
-        ctx.arc(0, 0, this.size, 0, Math.PI * 2);
+        ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
         ctx.fill();
-
-        if (this.facingDirection !== undefined) {
-            ctx.rotate(this.facingDirection);
-            ctx.fillStyle = '#fff';
-            ctx.beginPath();
-            ctx.moveTo(this.size, 0);
-            ctx.lineTo(this.size - 10, -5);
-            ctx.lineTo(this.size - 10, 5);
-            ctx.closePath();
-            ctx.fill();
-        }
-
-        ctx.restore();
-
-        ctx.fillStyle = '#fff';
-        ctx.font = '14px Arial';
+        
+        // Role indicator
+        ctx.fillStyle = '#1a1a2e';
+        ctx.font = '24px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText(this.emoji || '', screenX, screenY - this.size - 25);
-
-        ctx.fillStyle = '#fff';
-        ctx.font = '12px Arial';
-        ctx.fillText(this.name, screenX, screenY - this.size - 40);
-
-        this.drawHealthBar(ctx, camera);
+        ctx.textBaseline = 'middle';
+        ctx.fillText(this.heroData.icon, 0, 0);
+        
+        // Direction indicator
+        ctx.fillStyle = this.heroData.color;
+        ctx.rotate(this.facingAngle);
+        ctx.beginPath();
+        ctx.moveTo(this.radius + 15, 0);
+        ctx.lineTo(this.radius, -8);
+        ctx.lineTo(this.radius, 8);
+        ctx.closePath();
+        ctx.fill();
+        
+        ctx.globalAlpha = 1;
+        ctx.restore();
+        
+        // Health bar
+        this.renderHealthBar(ctx);
+        
+        // Name
+        this.renderName(ctx);
+        
+        // Shield indicator
+        if (this.shield > 0) {
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius + 5, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+        
+        // CC indicator
+        if (Array.isArray(this.debuffs) && this.debuffs.some(d => d.type === 'stun' || d.type === 'knockup')) {
+            ctx.fillStyle = '#fbbf24';
+            ctx.font = 'bold 16px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('💫', this.x, this.y - this.radius - 30);
+        }
     }
-
-    drawHealthBar(ctx, camera) {
-        const screenX = camera.xToScreen(this.x);
-        const screenY = camera.yToScreen(this.y);
-
-        const barWidth = this.size * 2;
-        const barHeight = 6;
-        const x = screenX - barWidth / 2;
-        const y = screenY - this.size - 15;
-
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-        ctx.fillRect(x, y, barWidth, barHeight);
-
-        const hpPercent = this.hp / this.maxHp;
-        const hpColor = hpPercent > 0.5 ? '#4ecca3' : hpPercent > 0.25 ? '#f39c12' : '#e94560';
-
-        ctx.fillStyle = hpColor;
-        ctx.fillRect(x, y, barWidth * hpPercent, barHeight);
-
-        ctx.strokeStyle = '#000';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(x, y, barWidth, barHeight);
+    
+    /**
+     * Render health bar
+     */
+    renderHealthBar(ctx) {
+        const barWidth = this.radius * 2.5;
+        const barHeight = 8;
+        const barY = this.y - this.radius - 20;
+        
+        // Background
+        ctx.fillStyle = 'rgba(0,0,0,0.8)';
+        ctx.fillRect(this.x - barWidth / 2 - 2, barY - 2, barWidth + 4, barHeight + 4);
+        
+        // Health
+        const healthPercent = this.health / this.stats.maxHealth;
+        ctx.fillStyle = this.team === CONFIG.teams.BLUE ? '#22c55e' : '#ef4444';
+        ctx.fillRect(this.x - barWidth / 2, barY, barWidth * healthPercent, barHeight);
+        
+        // Shield
+        if (this.shield > 0) {
+            const shieldPercent = Math.min(this.shield / this.stats.maxHealth, 1 - healthPercent);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(
+                this.x - barWidth / 2 + barWidth * healthPercent,
+                barY,
+                barWidth * shieldPercent,
+                barHeight
+            );
+        }
+        
+        // Mana bar
+        const manaY = barY + barHeight + 2;
+        const manaHeight = 4;
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(this.x - barWidth / 2, manaY, barWidth, manaHeight);
+        
+        const manaPercent = this.mana / this.stats.maxMana;
+        ctx.fillStyle = '#3b82f6';
+        ctx.fillRect(this.x - barWidth / 2, manaY, barWidth * manaPercent, manaHeight);
+    }
+    
+    /**
+     * Render name
+     */
+    renderName(ctx) {
+        // Display username (playerName) instead of hero name
+        ctx.font = 'bold 12px Arial';
+        ctx.fillStyle = this.color;
+        ctx.textAlign = 'center';
+        ctx.fillText(this.playerName, this.x, this.y - this.radius - 35);
+        
+        // Level
+        ctx.font = '10px Arial';
+        ctx.fillStyle = '#fbbf24';
+        ctx.fillText(`Lv.${this.level}`, this.x, this.y - this.radius - 48);
     }
 }
 
-window.Hero = Hero;
+// Export
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { HeroRegistry, HeroManager, Hero };
+}
